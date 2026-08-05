@@ -207,10 +207,10 @@ export default function TranscriptionApp() {
 
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (adminPassword === 'admin123') {
+    if (adminPassword === 'admin!@#') {
       setViewMode('admin');
     } else {
-      alert('비밀번호가 올바르지 않습니다. (기본: admin123)');
+      alert('비밀번호가 올바르지 않습니다. (기본: admin!@#)');
     }
   };
 
@@ -413,7 +413,7 @@ export default function TranscriptionApp() {
             <form onSubmit={handleAdminLogin} className="flex gap-2">
               <input
                 type="password"
-                placeholder="비밀번호 (admin123)"
+                placeholder="비밀번호"
                 value={adminPassword}
                 onChange={(e) => setAdminPassword(e.target.value)}
                 className="flex-1 p-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-800"
