@@ -236,7 +236,7 @@ export default function TranscriptionApp() {
     }
   };
 
-  // 3. 작성 완료 버튼
+  // 3. 작성 완료 버튼 (자동 이동 로직 제거)
   const handleCompleteSentence = () => {
     if (!currentDoc || isCurrentSentenceReadOnly) return;
     const totalSentences = currentDoc.sentences.length;
@@ -249,6 +249,10 @@ export default function TranscriptionApp() {
 
     const nowStr = new Date().toLocaleString('ko-KR');
 
+    // 현재 문장 저장
+    saveUserProgress(currentIndex, updatedDrafts, newCompleted);
+
+    // 마지막 문장에서 작성 완료 시 완주 축하 팝업 출력
     if (newCompleted >= totalSentences) {
       saveUserProgress(currentIndex, updatedDrafts, newCompleted, undefined, undefined, nowStr);
       const finalStats = calculateStats(currentDoc, updatedDrafts, currentIndex, input, true);
@@ -259,10 +263,6 @@ export default function TranscriptionApp() {
         errorRate: finalStats.errorRate
       });
       setShowCongratsModal(true);
-    } else {
-      const nextIdx = Math.min(totalSentences - 1, currentIndex + 1);
-      saveUserProgress(nextIdx, updatedDrafts, newCompleted);
-      setCurrentIndex(nextIdx);
     }
   };
 
@@ -548,7 +548,7 @@ export default function TranscriptionApp() {
     }
   };
 
-  // 통계 연산 로직 (전체 원문 글자 수 기준 오타율 및 누적 진행율 계산)
+  // 통계 연산 로직 (전체 원문 글자 수 기준)
   const calculateStats = (
     targetDocData?: DocumentData,
     targetDrafts?: Record<number, string>,
@@ -575,7 +575,6 @@ export default function TranscriptionApp() {
       const typed = idx === cIdx ? (currInput !== undefined ? currInput : (drafts[idx] || '')) : (drafts[idx] || '');
       totalTypedChars += typed.length;
 
-      // 이미 작성 완료된 문장이거나 현재 작성 중인 부분까지의 오타 비교
       const compareLength = Math.min(origSentence.length, typed.length);
       for (let i = 0; i < compareLength; i++) {
         if (typed[i] !== origSentence[i]) {
@@ -583,7 +582,6 @@ export default function TranscriptionApp() {
         }
       }
 
-      // 만약 작성 완료 버튼을 누른 완주 문장이라면, 빠뜨린 문장부호/글자도 오타로 추가 집계
       if (idx < completedCount && typed.length < origSentence.length) {
         totalErrorChars += (origSentence.length - typed.length);
       }
@@ -596,7 +594,6 @@ export default function TranscriptionApp() {
       completionRate = Math.min(100, Math.round((totalTypedChars / totalOriginalChars) * 100));
     }
 
-    // [핵심 변경]: 분모를 '타이핑한 글자 수'가 아닌 '전체 원문 글자 수(totalOriginalChars)'로 지정
     const errorRate = totalOriginalChars > 0 
       ? Math.round((totalErrorChars / totalOriginalChars) * 100)
       : 0;
@@ -1084,7 +1081,7 @@ export default function TranscriptionApp() {
                 다음 문장 ▶
               </button>
 
-              {/* 작성 완료 버튼: 클릭 후 작성 완료 상태가 되면 disabled 처리 */}
+              {/* 작성 완료 버튼: 클릭 후 작성 완료 상태가 되면 disabled 처리 및 자동 이동 안함 */}
               <button
                 onClick={handleCompleteSentence}
                 disabled={isCurrentSentenceReadOnly}
