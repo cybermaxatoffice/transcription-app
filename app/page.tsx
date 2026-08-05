@@ -236,7 +236,7 @@ export default function TranscriptionApp() {
     }
   };
 
-  // 3. 작성 완료 버튼 (자동 이동 로직 제거)
+  // 3. 작성 완료 버튼
   const handleCompleteSentence = () => {
     if (!currentDoc || isCurrentSentenceReadOnly) return;
     const totalSentences = currentDoc.sentences.length;
@@ -252,10 +252,10 @@ export default function TranscriptionApp() {
     // 현재 문장 저장
     saveUserProgress(currentIndex, updatedDrafts, newCompleted);
 
-    // 마지막 문장에서 작성 완료 시 완주 축하 팝업 출력
+    // 마지막 문장에서 작성 완료 시 완주 축하 팝업 출력 (최신 completedCount 전달)
     if (newCompleted >= totalSentences) {
       saveUserProgress(currentIndex, updatedDrafts, newCompleted, undefined, undefined, nowStr);
-      const finalStats = calculateStats(currentDoc, updatedDrafts, currentIndex, input, true);
+      const finalStats = calculateStats(currentDoc, updatedDrafts, currentIndex, input, true, newCompleted);
       setCongratsData({
         startDate: startDate || nowStr,
         endDate: nowStr,
@@ -548,13 +548,14 @@ export default function TranscriptionApp() {
     }
   };
 
-  // 통계 연산 로직 (전체 원문 글자 수 기준)
+  // 통계 연산 로직 (전체 원문 글자 수 기준, 비동기 completedCount 보정 매개변수 적용)
   const calculateStats = (
     targetDocData?: DocumentData,
     targetDrafts?: Record<number, string>,
     targetCurrIdx?: number,
     targetInputVal?: string,
-    isCompletedFlag?: boolean
+    isCompletedFlag?: boolean,
+    completedCountOverride?: number
   ) => {
     const docObj = targetDocData || currentDoc;
     if (!docObj || docObj.sentences.length === 0) {
@@ -564,6 +565,7 @@ export default function TranscriptionApp() {
     const drafts = targetDrafts || sentenceDrafts;
     const cIdx = targetCurrIdx !== undefined ? targetCurrIdx : currentIndex;
     const currInput = targetInputVal !== undefined ? targetInputVal : input;
+    const activeCompletedCount = completedCountOverride !== undefined ? completedCountOverride : completedCount;
 
     let totalOriginalChars = 0;
     let totalTypedChars = 0;
@@ -582,7 +584,8 @@ export default function TranscriptionApp() {
         }
       }
 
-      if (idx < completedCount && typed.length < origSentence.length) {
+      // 완주된 문장의 빠진 문장부호/글자 오타 누적 반영
+      if (idx < activeCompletedCount && typed.length < origSentence.length) {
         totalErrorChars += (origSentence.length - typed.length);
       }
     });
@@ -1081,7 +1084,7 @@ export default function TranscriptionApp() {
                 다음 문장 ▶
               </button>
 
-              {/* 작성 완료 버튼: 클릭 후 작성 완료 상태가 되면 disabled 처리 및 자동 이동 안함 */}
+              {/* 작성 완료 버튼 */}
               <button
                 onClick={handleCompleteSentence}
                 disabled={isCurrentSentenceReadOnly}
