@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
 interface DocumentData {
   id: string;
@@ -15,6 +15,7 @@ interface UserProgress {
   docId: string;
   currentIndex: number;
   completedCount: number;
+  currentInputText?: string; // 사람별/문서별 작성 중이던 임시 타이핑 내용
   lastUpdated: string;
 }
 
@@ -37,17 +38,17 @@ export default function TranscriptionApp() {
   const [progress, setProgress] = useState(0);
 
   // 관리자 전용: data 디렉토리 파일 읽기 및 추출 상태
-  const [dataFileName, setDataFileName] = useState('sample1.pdf'); // public/data/ 내 기본 파일명
+  const [dataFileName, setDataFileName] = useState('sample1.pdf');
   const [extractedTitle, setExtractedTitle] = useState('');
   const [allParsedSentences, setAllParsedSentences] = useState<{ id: number; text: string; selected: boolean }[]>([]);
   const [sections, setSections] = useState<SectionItem[]>([]);
   const [sectionName, setSectionName] = useState('');
   const [isReviewing, setIsReviewing] = useState(false);
 
-  // 사용자별 진행 현황
+  // 사람별(userName) -> 문서별(docId) 진행 및 임시 저장 관리 Map
   const [userProgressMap, setUserProgressMap] = useState<Record<string, Record<string, UserProgress>>>({});
-  const [registeredUsers, setRegisteredUsers] = useState<string[]>([]);
 
+  // 초기 데이터 로드
   useEffect(() => {
     const loadedDocs = localStorage.getItem('transcription_docs');
     const loadedProgress = localStorage.getItem('transcription_progress');
@@ -71,15 +72,27 @@ export default function TranscriptionApp() {
     }
 
     if (loadedProgress) {
-      const parsedProgress = JSON.parse(loadedProgress);
-      setUserProgressMap(parsedProgress);
-      setRegisteredUsers(Object.keys(parsedProgress));
+      setUserProgressMap(JSON.parse(loadedProgress));
     }
   }, []);
+
+  // 모든 입력값 및 선택값 초기화 후 로그인 화면 이동
+  const resetAllAndGoToLogin = () => {
+    setUserName('');
+    setAdminPassword('');
+    setInput('');
+    if (documents.length > 0) {
+      setSelectedDocId(documents[0].id);
+    } else {
+      setSelectedDocId('');
+    }
+    setViewMode('login');
+  };
 
   const currentDoc = documents.find((d) => d.id === selectedDocId);
   const currentSentence = currentDoc?.sentences[currentIndex] || '';
 
+  // 실시간 타이핑 진도율 계산
   useEffect(() => {
     if (!currentSentence) {
       setProgress(0);
@@ -90,48 +103,92 @@ export default function TranscriptionApp() {
       Math.round((input.length / currentSentence.length) * 100)
     );
     setProgress(currentProgress);
-
-    if (input === currentSentence && userName) {
-      saveUserProgress(currentIndex + 1);
-    }
   }, [input, currentSentence]);
 
-  const saveUserProgress = (completedIndex: number) => {
+  // 사람별 / 문서별 저장 함수
+  const saveUserProgress = (
+    targetIndex: number,
+    completedCountOverride?: number,
+    inputTextToSave: string = ''
+  ) => {
     if (!userName || !selectedDocId) return;
 
+    const trimmedUser = userName.trim();
     const newProgressMap = { ...userProgressMap };
-    if (!newProgressMap[userName]) newProgressMap[userName] = {};
-
-    const prevCount = newProgressMap[userName][selectedDocId]?.completedCount || 0;
     
-    newProgressMap[userName][selectedDocId] = {
+    if (!newProgressMap[trimmedUser]) {
+      newProgressMap[trimmedUser] = {};
+    }
+
+    const prevCount = newProgressMap[trimmedUser][selectedDocId]?.completedCount || 0;
+    const newCompletedCount = completedCountOverride !== undefined 
+      ? completedCountOverride 
+      : Math.max(prevCount, targetIndex);
+
+    newProgressMap[trimmedUser][selectedDocId] = {
       docId: selectedDocId,
-      currentIndex,
-      completedCount: Math.max(prevCount, completedIndex),
+      currentIndex: targetIndex,
+      completedCount: newCompletedCount,
+      currentInputText: inputTextToSave,
       lastUpdated: new Date().toLocaleString('ko-KR')
     };
 
     setUserProgressMap(newProgressMap);
-    if (!registeredUsers.includes(userName)) {
-      setRegisteredUsers([...registeredUsers, userName]);
-    }
     localStorage.setItem('transcription_progress', JSON.stringify(newProgressMap));
+  };
+
+  // 1. 임시 저장 버튼 클릭 (사람별/문서별 각각 저장)
+  const handleTempSave = () => {
+    const currentCompleted = userProgressMap[userName.trim()]?.[selectedDocId]?.completedCount || 0;
+    saveUserProgress(currentIndex, currentCompleted, input);
+    alert(`'${userName.trim()}'님의 '${currentDoc?.title}' 필사 임시 작성이 저장되었습니다.`);
+  };
+
+  // 2. 다음 문장 버튼 클릭 (저장 후 다음 문장으로 이동)
+  const handleNextSentence = () => {
+    if (!currentDoc) return;
+    const totalSentences = currentDoc.sentences.length;
+
+    const currentCompleted = userProgressMap[userName.trim()]?.[selectedDocId]?.completedCount || 0;
+    const updatedCompleted = Math.max(currentCompleted, currentIndex + 1);
+
+    if (currentIndex < totalSentences - 1) {
+      const nextIdx = currentIndex + 1;
+      saveUserProgress(nextIdx, updatedCompleted, '');
+      setCurrentIndex(nextIdx);
+      setInput('');
+    } else {
+      saveUserProgress(currentIndex, updatedCompleted, input);
+      alert('축하합니다! 해당 필사문의 모든 문장을 완료하셨습니다.');
+    }
+  };
+
+  // 3. 이전 문장 버튼 클릭
+  const handlePrevSentence = () => {
+    if (currentIndex > 0) {
+      const currentCompleted = userProgressMap[userName.trim()]?.[selectedDocId]?.completedCount || 0;
+      saveUserProgress(currentIndex - 1, currentCompleted, '');
+      setCurrentIndex(currentIndex - 1);
+      setInput('');
+    }
   };
 
   const handleUserLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userName.trim()) return alert('이름을 입력하거나 선택해 주세요.');
-    if (!selectedDocId) return alert('필사할 문서(필사문)를 선택해 주세요.');
+    if (!userName.trim()) return alert('사용자 이름을 입력해 주세요.');
+    if (!selectedDocId) return alert('필사할 필사문 제목을 선택해 주세요.');
 
     setViewMode('user');
 
-    const existingProgress = userProgressMap[userName]?.[selectedDocId];
+    // 로그인한 사람(userName)과 선택한 필사문(selectedDocId)에 해당하는 개별 진행 정보 불러오기
+    const existingProgress = userProgressMap[userName.trim()]?.[selectedDocId];
     if (existingProgress) {
       setCurrentIndex(existingProgress.currentIndex);
+      setInput(existingProgress.currentInputText || ''); // 해당 사람/문서 전용 작성 내용 복원
     } else {
       setCurrentIndex(0);
+      setInput('');
     }
-    setInput('');
   };
 
   const handleAdminLogin = (e: React.FormEvent) => {
@@ -143,9 +200,8 @@ export default function TranscriptionApp() {
     }
   };
 
-  // public/data/ 디렉토리 내부 PDF 파일 직접 읽기
   const handleLoadFromDataDir = async () => {
-    if (!dataFileName.trim()) return alert('파일명(예: sample.pdf)을 입력해 주세요.');
+    if (!dataFileName.trim()) return alert('파일명(예: sample1.pdf)을 입력해 주세요.');
 
     const filePath = `/data/${dataFileName.trim()}`;
     setExtractedTitle(dataFileName.replace('.pdf', ''));
@@ -154,7 +210,7 @@ export default function TranscriptionApp() {
     try {
       const response = await fetch(filePath);
       if (!response.ok) {
-        return alert(`public/data/${dataFileName} 파일을 찾을 수 없습니다. 경로를 확인해 주세요.`);
+        return alert(`public/data/${dataFileName} 파일을 찾을 수 없습니다. 경로 및 파일명을 확인해 주세요.`);
       }
 
       const arrayBuffer = await response.arrayBuffer();
@@ -254,6 +310,7 @@ export default function TranscriptionApp() {
 
   // ---------------- 화면 렌더링 ----------------
 
+  // 1. 초기 로그인 화면
   if (viewMode === 'login') {
     return (
       <main className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
@@ -261,27 +318,15 @@ export default function TranscriptionApp() {
           <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 space-y-5">
             <div>
               <h1 className="text-2xl font-bold text-slate-800">필사 서비스</h1>
-              <p className="text-xs text-slate-500 mt-1">이름과 필사할 필사문 제목을 선택해 주세요.</p>
+              <p className="text-xs text-slate-500 mt-1">이름을 입력하고 필사할 필사문 제목을 선택해 주세요.</p>
             </div>
 
             <form onSubmit={handleUserLogin} className="space-y-4">
               <div>
                 <label className="text-xs font-semibold text-slate-600 mb-1 block">사용자 이름</label>
-                {registeredUsers.length > 0 && (
-                  <select
-                    onChange={(e) => setUserName(e.target.value)}
-                    value={userName}
-                    className="w-full p-2.5 mb-2 border border-slate-300 rounded-xl text-sm bg-slate-50"
-                  >
-                    <option value="">--기존 등록된 이름에서 선택--</option>
-                    {registeredUsers.map((u) => (
-                      <option key={u} value={u}>{u}</option>
-                    ))}
-                  </select>
-                )}
                 <input
                   type="text"
-                  placeholder="또는 새 사용자 이름 직접 입력"
+                  placeholder="사용자 이름 입력"
                   value={userName}
                   onChange={(e) => setUserName(e.target.value)}
                   className="w-full p-3 border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-800"
@@ -335,6 +380,7 @@ export default function TranscriptionApp() {
     );
   }
 
+  // 2. 관리자 화면
   if (viewMode === 'admin') {
     return (
       <main className="min-h-screen bg-slate-50 p-6">
@@ -345,21 +391,20 @@ export default function TranscriptionApp() {
               <p className="text-xs text-slate-400 mt-1">data 디렉토리 기반 필사문 생성 및 사용자 관리</p>
             </div>
             <button
-              onClick={() => setViewMode('login')}
+              onClick={resetAllAndGoToLogin}
               className="text-xs bg-slate-200 text-slate-700 px-3 py-2 rounded-lg font-medium hover:bg-slate-300"
             >
-              로그아웃
+              로그아웃 (초기화)
             </button>
           </div>
 
-          {/* data 디렉토리 기반 파일 불러오기 영역 */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
             <h2 className="text-lg font-bold text-slate-800">data 디렉토리 파일로 필사문 생성</h2>
 
             {!isReviewing ? (
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                 <span className="text-xs font-semibold text-slate-600 block">
-                  public/data/ 경로의 PDF 파일명 입력:
+                  transcription-app/public/data/ 경로의 PDF 파일명 입력:
                 </span>
                 <div className="flex gap-2">
                   <input
@@ -376,9 +421,6 @@ export default function TranscriptionApp() {
                     파일 불러오기 및 파싱
                   </button>
                 </div>
-                <p className="text-xs text-slate-400">
-                  * 회사 보안으로 파일 업로드가 안 될 경우, 미리 <code className="bg-slate-200 px-1 py-0.5 rounded">public/data/</code> 폴더에 넣은 PDF 파일명을 입력해 주세요.
-                </p>
               </div>
             ) : (
               <div className="space-y-6 border-t border-slate-100 pt-4">
@@ -523,7 +565,8 @@ export default function TranscriptionApp() {
     );
   }
 
-  const myProgress = userProgressMap[userName]?.[selectedDocId];
+  // 3. 일반 사용자 필사 화면
+  const myProgress = userProgressMap[userName.trim()]?.[selectedDocId];
   const totalSentences = currentDoc?.sentences.length || 0;
   const completedCount = myProgress?.completedCount || 0;
   const overallPercent = totalSentences > 0 ? Math.round((completedCount / totalSentences) * 100) : 0;
@@ -531,33 +574,50 @@ export default function TranscriptionApp() {
   return (
     <main className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
       <div className="max-w-2xl w-full bg-white rounded-2xl shadow-sm border border-slate-200 p-8 space-y-6">
+        
+        {/* 상단 헤더 영역 */}
         <div className="flex justify-between items-center border-b border-slate-100 pb-4">
           <div>
             <span className="text-xs text-slate-400 font-medium">사용자: {userName}님</span>
             <h1 className="text-xl font-bold text-slate-800">{currentDoc?.title || '필사 연습'}</h1>
           </div>
           <button
-            onClick={() => setViewMode('login')}
+            onClick={resetAllAndGoToLogin}
             className="text-xs text-slate-400 hover:text-slate-600 underline"
           >
-            제목 / 사용자 변경
+            제목 / 사용자 변경 (초기화)
           </button>
         </div>
 
-        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200/60 space-y-2">
-          <div className="flex justify-between text-xs text-slate-500">
-            <span>내 완성도 ({completedCount}/{totalSentences} 문장)</span>
-            <span className="font-bold text-emerald-600">{overallPercent}%</span>
+        {/* 상단 진행률 카드 */}
+        <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200/60 space-y-3">
+          <div className="flex justify-between items-center text-sm font-semibold text-slate-700">
+            <span>전체 필사 진행률</span>
+            <span className="text-emerald-600 font-bold text-base">{overallPercent}%</span>
           </div>
-          <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
-            <div className="bg-emerald-500 h-full transition-all duration-300" style={{ width: `${overallPercent}%` }} />
+
+          <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden">
+            <div
+              className="bg-emerald-500 h-full transition-all duration-300"
+              style={{ width: `${overallPercent}%` }}
+            />
+          </div>
+
+          <div className="flex justify-between items-center text-xs text-slate-500 pt-1">
+            <span>
+              현재 문장 위치: <strong className="text-slate-800 font-semibold">{currentIndex + 1}</strong> / {totalSentences}
+            </span>
+            <span>
+              완료 문장 수: <strong className="text-emerald-600 font-semibold">{completedCount}</strong> / {totalSentences}
+            </span>
           </div>
         </div>
 
+        {/* 필사 입력 및 제어 영역 */}
         <div className="space-y-4">
           <div className="flex justify-between items-center text-xs text-slate-400 font-medium">
             <span>문장 {currentIndex + 1} / {totalSentences}</span>
-            <span>입력 진도: <strong className="text-emerald-600">{progress}%</strong></span>
+            <span>현재 문장 작성률: <strong className="text-emerald-600">{progress}%</strong></span>
           </div>
 
           <div className="p-5 bg-slate-50 rounded-xl text-slate-700 font-serif text-lg leading-relaxed border border-slate-200/60 select-none min-h-[100px]">
@@ -582,42 +642,31 @@ export default function TranscriptionApp() {
             className="w-full p-4 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-800 font-serif text-lg text-slate-800 resize-none"
           />
 
-          <div className="flex justify-between items-center text-sm">
+          {/* 지정된 3종 버튼 영역 (이전 문장 / 임시 저장 / 다음 문장) */}
+          <div className="flex justify-between items-center pt-2 gap-3">
+            <button
+              onClick={handlePrevSentence}
+              disabled={currentIndex === 0}
+              className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-30"
+            >
+              ◀ 이전 문장
+            </button>
+
             <div className="flex gap-2">
               <button
-                onClick={() => {
-                  if (currentIndex > 0) {
-                    const newIdx = currentIndex - 1;
-                    setCurrentIndex(newIdx);
-                    setInput('');
-                  }
-                }}
-                disabled={currentIndex === 0}
-                className="px-3 py-1.5 rounded border border-slate-200 text-xs font-medium hover:bg-slate-50 disabled:opacity-30"
+                onClick={handleTempSave}
+                className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
               >
-                이전 문장
+                임시 저장
               </button>
+
               <button
-                onClick={() => {
-                  if (currentIndex < totalSentences - 1) {
-                    const newIdx = currentIndex + 1;
-                    setCurrentIndex(newIdx);
-                    setInput('');
-                  }
-                }}
-                disabled={currentIndex === totalSentences - 1}
-                className="px-3 py-1.5 rounded border border-slate-200 text-xs font-medium hover:bg-slate-50 disabled:opacity-30"
+                onClick={handleNextSentence}
+                className="bg-emerald-600 text-white font-medium text-xs px-5 py-2.5 rounded-xl hover:bg-emerald-700 transition-colors shadow-sm"
               >
-                다음 문장
+                {currentIndex < totalSentences - 1 ? '다음 문장 ▶' : '완료 및 저장'}
               </button>
             </div>
-
-            <button
-              onClick={() => setInput('')}
-              className="text-xs text-slate-400 hover:text-slate-600 underline"
-            >
-              초기화
-            </button>
           </div>
         </div>
       </div>
