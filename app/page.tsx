@@ -65,7 +65,7 @@ export default function TranscriptionApp() {
   const [isReviewing, setIsReviewing] = useState(false);
 
   // 진행 상태 맵 (버전별 독립 키 사용)
-  const [userProgressMap, setUserProgressMap] = useState<Record<string, Record<string, UserProgress>> >({});
+  const [userProgressMap, setUserProgressMap] = useState<Record<string, Record<string, UserProgress>>>({});
 
   // 초기 로드
   useEffect(() => {
@@ -586,7 +586,7 @@ export default function TranscriptionApp() {
 
   // ---------------- 화면 렌더링 ----------------
 
-  // 1. 로그인 화면 (초기 화면: 필사문 고유 제목만 깔끔하게 출력)
+  // 1. 로그인 화면
   if (viewMode === 'login') {
     const activeDocuments = documents.filter((d) => !d.disabled);
 
@@ -619,7 +619,6 @@ export default function TranscriptionApp() {
                     onChange={(e) => setSelectedDocId(e.target.value)}
                     className="w-full p-4 border border-slate-300 rounded-xl text-base bg-white focus:outline-none focus:ring-2 focus:ring-slate-800 font-bold whitespace-normal"
                   >
-                    {/* 버전 표기 없이 순수 필사문 고유 명칭만 출력 */}
                     {activeDocuments.map((d) => (
                       <option key={d.id} value={d.id}>
                         {d.title} ({d.sentences.length}문장)
@@ -922,68 +921,66 @@ export default function TranscriptionApp() {
     );
   }
 
-  // 3. 일반 사용자 필사 화면 (버전을 2번째 줄에 표기, 버튼 줄바꿈 방지, 수치 크기 알맞게 감소)
+  // 3. 일반 사용자 필사 화면 (세로 스크롤 방지를 위해 내부 여백 및 높이 컴팩트화)
   const totalSentences = currentDoc?.sentences.length || 0;
   const verStr = `v${currentVersion}.0`;
 
   const currentUserHistory = userProgressMap[userName.trim()] || {};
 
   return (
-    <main className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 relative">
-      <div className="max-w-3xl w-full bg-white rounded-3xl shadow-sm border border-slate-200 p-8 md:p-10 space-y-8">
+    <main className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-3 md:p-4 relative">
+      <div className="max-w-3xl w-full bg-white rounded-3xl shadow-sm border border-slate-200 p-5 md:p-6 space-y-4">
         
         {/* 상단 헤더 영역: 1줄 - 고유 제목, 2줄 - 버전 표기 */}
-        <div className="flex justify-between items-start border-b border-slate-100 pb-5">
+        <div className="flex justify-between items-start border-b border-slate-100 pb-3">
           <div className="space-y-1">
-            <span className="text-base font-extrabold text-slate-600 block">사용자: {userName || '관리자'}님</span>
+            <span className="text-sm font-extrabold text-slate-600 block">사용자: {userName || '관리자'}님</span>
             {/* 1번째 줄: 필사문 고유 제목 */}
-            <h1 className="text-2xl md:text-3xl font-black text-slate-800">{currentDoc?.title || '필사 연습'}</h1>
+            <h1 className="text-xl md:text-2xl font-black text-slate-800">{currentDoc?.title || '필사 연습'}</h1>
             {/* 2번째 줄: 필사문 버전 표기 */}
-            <div className="text-sm md:text-base font-extrabold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-md inline-block">
+            <div className="text-xs md:text-sm font-extrabold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md inline-block">
               현재 버전: {verStr}
             </div>
           </div>
-          <div className="flex gap-2.5 items-center">
+          <div className="flex gap-2 items-center">
             <button
               onClick={() => setShowUserHistoryModal(true)}
-              className="text-sm md:text-base bg-slate-100 text-slate-800 px-3.5 py-2.5 rounded-xl font-extrabold hover:bg-slate-200 transition-colors border border-slate-200 whitespace-nowrap"
+              className="text-xs md:text-sm bg-slate-100 text-slate-800 px-3 py-2 rounded-xl font-extrabold hover:bg-slate-200 transition-colors border border-slate-200 whitespace-nowrap"
             >
               내 필사 이력 📜
             </button>
             <button
               onClick={resetAllAndGoToLogin}
-              className="text-sm md:text-base bg-slate-200 text-slate-800 hover:bg-rose-100 hover:text-rose-700 px-4 py-2.5 rounded-xl font-extrabold transition-colors border border-slate-300 whitespace-nowrap"
+              className="text-xs md:text-sm bg-slate-200 text-slate-800 hover:bg-rose-100 hover:text-rose-700 px-3 py-2 rounded-xl font-extrabold transition-colors border border-slate-300 whitespace-nowrap"
             >
               필사종료
             </button>
           </div>
         </div>
 
-        {/* 상단 실시간 연산 지표 카드 (% 숫자를 더 완만하고 알맞은 크기로 조정) */}
-        <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200/80 space-y-5">
-          <div className="grid grid-cols-2 gap-5">
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
-              <span className="text-base font-extrabold text-slate-600 block mb-1">전체 문서 작성률</span>
-              {/* % 수치 크기 축소: text-xl md:text-2xl */}
-              <span className="text-emerald-600 font-black text-xl md:text-2xl">{stats.completionRate}%</span>
-              <span className="text-sm font-semibold text-slate-500 block mt-1">({stats.totalTypedChars} / {stats.totalOriginalChars} 글자)</span>
+        {/* 상단 실시간 연산 지표 카드 (세로 여백 콤팩트 축소) */}
+        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+              <span className="text-xs md:text-sm font-extrabold text-slate-600 block mb-0.5">전체 문서 작성률</span>
+              <span className="text-emerald-600 font-black text-lg md:text-xl">{stats.completionRate}%</span>
+              <span className="text-xs font-semibold text-slate-500 block mt-0.5">({stats.totalTypedChars} / {stats.totalOriginalChars} 글자)</span>
             </div>
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
-              <span className="text-base font-extrabold text-slate-600 block mb-1">현재 오타율</span>
-              {/* % 수치 크기 축소: text-xl md:text-2xl */}
-              <span className={`font-black text-xl md:text-2xl ${stats.errorRate > 0 ? 'text-rose-500' : 'text-slate-800'}`}>
+            <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
+              <span className="text-xs md:text-sm font-extrabold text-slate-600 block mb-0.5">현재 오타율</span>
+              <span className={`font-black text-lg md:text-xl ${stats.errorRate > 0 ? 'text-rose-500' : 'text-slate-800'}`}>
                 {stats.errorRate}%
               </span>
-              <span className="text-sm font-semibold text-slate-500 block mt-1">(실시간 교정 반영)</span>
+              <span className="text-xs font-semibold text-slate-500 block mt-0.5">(실시간 교정 반영)</span>
             </div>
           </div>
 
-          <div className="space-y-2 pt-1">
-            <div className="flex justify-between items-center text-base font-extrabold text-slate-700">
+          <div className="space-y-1 pt-0.5">
+            <div className="flex justify-between items-center text-xs md:text-sm font-extrabold text-slate-700">
               <span>작성 진행률</span>
-              <span className="text-slate-900 text-base">{stats.completionRate}%</span>
+              <span className="text-slate-900">{stats.completionRate}%</span>
             </div>
-            <div className="w-full bg-slate-200 h-3.5 rounded-full overflow-hidden">
+            <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden">
               <div
                 className="bg-emerald-500 h-full transition-all duration-300"
                 style={{ width: `${stats.completionRate}%` }}
@@ -991,23 +988,23 @@ export default function TranscriptionApp() {
             </div>
           </div>
 
-          <div className="flex justify-between items-center text-base font-extrabold text-slate-700 border-t border-slate-200/60 pt-3">
+          <div className="flex justify-between items-center text-xs md:text-sm font-extrabold text-slate-700 border-t border-slate-200/60 pt-2">
             <span>
-              현재 위치: <strong className="text-slate-900 font-black text-lg">{currentIndex + 1}</strong> / {totalSentences} 문장
+              현재 위치: <strong className="text-slate-900 font-black text-base">{currentIndex + 1}</strong> / {totalSentences} 문장
             </span>
-            <span className="text-sm font-semibold text-slate-500">시작일: {startDate || '-'}</span>
+            <span className="text-xs font-semibold text-slate-500">시작일: {startDate || '-'}</span>
           </div>
         </div>
 
-        {/* 필사 입력 및 제어 영역 */}
-        <div className="space-y-5">
-          <div className="flex justify-between items-center text-base font-extrabold text-slate-600">
+        {/* 필사 입력 및 제어 영역 (높이 축소) */}
+        <div className="space-y-3">
+          <div className="flex justify-between items-center text-xs md:text-sm font-extrabold text-slate-600">
             <span>문장 {currentIndex + 1} / {totalSentences}</span>
-            <span>현재 문장 작성률: <strong className="text-emerald-600 text-base font-black">{Math.min(100, Math.round((input.length / (currentSentence.length || 1)) * 100))}%</strong></span>
+            <span>현재 문장 작성률: <strong className="text-emerald-600 text-sm md:text-base font-black">{Math.min(100, Math.round((input.length / (currentSentence.length || 1)) * 100))}%</strong></span>
           </div>
 
-          {/* 원문 출력 상자 (기존 크기 text-lg 유지) */}
-          <div className="p-5 bg-slate-50 rounded-xl text-slate-800 font-serif text-lg leading-relaxed border border-slate-200/80 select-none min-h-[100px]">
+          {/* 원문 출력 상자 (text-lg 유지 / 최소 높이 콤팩트화) */}
+          <div className="p-4 bg-slate-50 rounded-xl text-slate-800 font-serif text-lg leading-relaxed border border-slate-200/80 select-none min-h-[70px]">
             {currentSentence.split('').map((char, index) => {
               let colorClass = 'text-slate-400';
               if (index < input.length) {
@@ -1021,37 +1018,37 @@ export default function TranscriptionApp() {
             })}
           </div>
 
-          {/* 필사 입력 박스 (기존 크기 text-lg 유지) */}
+          {/* 필사 입력 박스 (text-lg 유지 / 행 수 rows={2}로 컴팩트 조정) */}
           <textarea
             value={input}
             onChange={(e) => handleInputChange(e.target.value)}
             placeholder="위 문장을 똑같이 입력해 주세요..."
-            rows={3}
-            className="w-full p-4 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-800 font-serif text-lg text-slate-800 resize-none"
+            rows={2}
+            className="w-full p-3.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-800 font-serif text-lg text-slate-800 resize-none"
           />
 
-          {/* 제어 버튼 영역 (버튼 텍스트 줄바꿈 방지) */}
-          <div className="flex justify-between items-center pt-3 gap-3">
+          {/* 제어 버튼 영역 (여백 콤팩트 조정) */}
+          <div className="flex justify-between items-center pt-2 gap-2">
             <button
               onClick={handlePrevSentence}
               disabled={currentIndex === 0}
-              className="px-4 md:px-5 py-3 rounded-2xl border border-slate-300 text-base font-extrabold bg-white text-slate-800 hover:bg-slate-100 disabled:opacity-30 shadow-xs whitespace-nowrap"
+              className="px-4 py-2.5 rounded-xl border border-slate-300 text-sm md:text-base font-extrabold bg-white text-slate-800 hover:bg-slate-100 disabled:opacity-30 shadow-xs whitespace-nowrap"
             >
               ◀ 이전 문장
             </button>
 
-            <div className="flex gap-2.5">
+            <div className="flex gap-2">
               <button
                 onClick={handleNextSentence}
                 disabled={currentIndex === totalSentences - 1}
-                className="px-4 md:px-5 py-3 rounded-2xl border border-slate-300 text-base font-extrabold bg-slate-100 text-slate-800 hover:bg-slate-200 transition-colors disabled:opacity-30 shadow-xs whitespace-nowrap"
+                className="px-4 py-2.5 rounded-xl border border-slate-300 text-sm md:text-base font-extrabold bg-slate-100 text-slate-800 hover:bg-slate-200 transition-colors disabled:opacity-30 shadow-xs whitespace-nowrap"
               >
                 다음 문장 ▶
               </button>
 
               <button
                 onClick={handleCompleteSentence}
-                className="bg-emerald-600 text-white font-extrabold text-base px-5 md:px-6 py-3 rounded-2xl hover:bg-emerald-700 transition-colors shadow-md whitespace-nowrap"
+                className="bg-emerald-600 text-white font-extrabold text-sm md:text-base px-5 py-2.5 rounded-xl hover:bg-emerald-700 transition-colors shadow-md whitespace-nowrap"
               >
                 작성 완료
               </button>
