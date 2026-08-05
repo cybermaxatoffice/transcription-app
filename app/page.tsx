@@ -3,13 +3,14 @@
 import React, { useState, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+// API 버전 4.10.38과 일치하도록 Worker 경로 지정 (.mjs 확장자 적용)
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs`;
 
 interface DocumentData {
   id: string;
   title: string;
   sentences: string[];
-  disabled?: boolean; // 사용중지 상태 여부
+  disabled?: boolean;
 }
 
 interface UserProgress {
@@ -224,7 +225,7 @@ export default function TranscriptionApp() {
     }
   };
 
-  // PDF 파싱: 마침표가 아닌 한 줄(줄바꿈 \n) 단위로 분할
+  // PDF 파싱: 마침표가 아닌 한 줄(줄바꿈 \n) 단위로 분할 (버전 4.10.38 기준 적용)
   const handleLoadFromDataDir = async () => {
     if (!dataFileName.trim()) return alert('파일명(예: sample1.pdf)을 입력해 주세요.');
 
@@ -240,11 +241,12 @@ export default function TranscriptionApp() {
 
       const arrayBuffer = await response.arrayBuffer();
 
+      // 버전 4.10.38 CDN 경로 맞춤 설정
       const loadingTask = pdfjsLib.getDocument({
         data: arrayBuffer,
-        cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+        cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/cmaps/',
         cMapPacked: true,
-        standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/standard_fonts/',
+        standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/standard_fonts/',
       });
 
       const pdf = await loadingTask.promise;
@@ -343,7 +345,6 @@ export default function TranscriptionApp() {
     alert(`필사문 '${newDoc.title}'이(가) 성공적으로 등록되었습니다! (총 ${mergedSentences.length}개 줄)`);
   };
 
-  // --- 관리자: 필사문 사용중지 / 사용재개 토글 ---
   const handleToggleDisableDoc = (id: string) => {
     const targetDoc = documents.find((d) => d.id === id);
     if (!targetDoc) return;
@@ -359,7 +360,6 @@ export default function TranscriptionApp() {
       setDocuments(updatedDocs);
       localStorage.setItem('transcription_docs', JSON.stringify(updatedDocs));
 
-      // 현재 선택된 문서가 사용 중지되었을 경우 선택 문서 재설정
       if (selectedDocId === id && willDisable) {
         const nextActive = updatedDocs.find((d) => !d.disabled);
         setSelectedDocId(nextActive ? nextActive.id : '');
@@ -367,7 +367,6 @@ export default function TranscriptionApp() {
     }
   };
 
-  // --- 관리자: 필사문 완전 삭제 ---
   const handleDeleteDoc = (id: string) => {
     const targetDoc = documents.find((d) => d.id === id);
     if (!targetDoc) return;
@@ -387,7 +386,6 @@ export default function TranscriptionApp() {
     }
   };
 
-  // 실시간 연산 지표
   const calculateStats = () => {
     if (!currentDoc || currentDoc.sentences.length === 0) {
       return { completionRate: 0, errorRate: 0, totalOriginalChars: 0, totalTypedChars: 0 };
@@ -633,7 +631,6 @@ export default function TranscriptionApp() {
               </div>
             )}
 
-            {/* 등록된 필사문 목록 및 제어 (사용중지/삭제) */}
             <div className="pt-4 border-t border-slate-100">
               <h3 className="text-xs font-semibold text-slate-500 mb-2">등록된 필사문 목록 ({documents.length})</h3>
               <ul className="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden">
