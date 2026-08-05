@@ -41,6 +41,7 @@ export default function TranscriptionApp() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [input, setInput] = useState('');
   const [sentenceDrafts, setSentenceDrafts] = useState<Record<number, string>>({});
+  const [completedCount, setCompletedCount] = useState<number>(0);
   const [currentVersion, setCurrentVersion] = useState<number>(1);
   const [startDate, setStartDate] = useState<string>('');
 
@@ -100,6 +101,9 @@ export default function TranscriptionApp() {
   const currentDoc = documents.find((d) => d.id === selectedDocId);
   const currentSentence = currentDoc?.sentences[currentIndex] || '';
 
+  // 현재 문장이 이미 작성 완료된 상태인지 여부 (완료된 문장은 수정 및 버튼 비활성화)
+  const isCurrentSentenceReadOnly = currentIndex < completedCount;
+
   // 버전별 고유 저장 키 생성
   const getProgressKey = (docId: string, ver: number) => `${docId}_v${ver}.0`;
 
@@ -127,8 +131,9 @@ export default function TranscriptionApp() {
     }
   }, [currentIndex, viewMode]);
 
-  // 입력값 변경 시 내역 캐시 업데이트 및 저장소 동기화
+  // 입력값 변경 시 (작성 완료되지 않은 현재 문장만 수정 가능)
   const handleInputChange = (val: string) => {
+    if (isCurrentSentenceReadOnly) return; // 완주 문장 수정 불가 보호
     setInput(val);
     const updatedDrafts = { ...sentenceDrafts, [currentIndex]: val };
     setSentenceDrafts(updatedDrafts);
@@ -140,6 +145,7 @@ export default function TranscriptionApp() {
     setAdminPassword('');
     setInput('');
     setSentenceDrafts({});
+    setCompletedCount(0);
     setShowCongratsModal(false);
     setShowUserHistoryModal(false);
     
@@ -175,7 +181,7 @@ export default function TranscriptionApp() {
     const prevCount = prevProg?.completedCount || 0;
     const newCompletedCount = completedCountOverride !== undefined 
       ? completedCountOverride 
-      : prevCount;
+      : Math.max(prevCount, completedCount);
 
     const totalSentences = currentDoc?.sentences.length || 0;
     const isComp = totalSentences > 0 && newCompletedCount >= totalSentences;
@@ -232,15 +238,15 @@ export default function TranscriptionApp() {
 
   // 3. 작성 완료 버튼
   const handleCompleteSentence = () => {
-    if (!currentDoc) return;
+    if (!currentDoc || isCurrentSentenceReadOnly) return;
     const totalSentences = currentDoc.sentences.length;
 
     const updatedDrafts = { ...sentenceDrafts, [currentIndex]: input };
     setSentenceDrafts(updatedDrafts);
 
-    const storageKey = getProgressKey(selectedDocId, currentVersion);
-    const currentCompleted = userProgressMap[userName.trim()]?.[storageKey]?.completedCount || 0;
-    const newCompleted = Math.max(currentCompleted, currentIndex + 1);
+    // 완주 카운트 단방향 증가
+    const newCompleted = Math.max(completedCount, currentIndex + 1);
+    setCompletedCount(newCompleted);
 
     const nowStr = new Date().toLocaleString('ko-KR');
 
@@ -255,8 +261,9 @@ export default function TranscriptionApp() {
       });
       setShowCongratsModal(true);
     } else {
-      saveUserProgress(currentIndex, updatedDrafts, newCompleted);
-      alert(`현재 문장 및 진행 상황이 저장되었습니다! (${newCompleted}/${totalSentences} 문장 완주)`);
+      const nextIdx = Math.min(totalSentences - 1, currentIndex + 1);
+      saveUserProgress(nextIdx, updatedDrafts, newCompleted);
+      setCurrentIndex(nextIdx);
     }
   };
 
@@ -286,6 +293,7 @@ export default function TranscriptionApp() {
         setCurrentVersion(nextVerNum);
         setStartDate(nowStr);
         setCurrentIndex(0);
+        setCompletedCount(0);
         setSentenceDrafts({});
         setInput('');
 
@@ -315,6 +323,7 @@ export default function TranscriptionApp() {
       const savedIdx = latestProgress.currentIndex;
       const drafts = latestProgress.sentenceDrafts || {};
       setSentenceDrafts(drafts);
+      setCompletedCount(latestProgress.completedCount || 0);
       setCurrentIndex(savedIdx);
       setInput(drafts[savedIdx] || '');
       setCurrentVersion(latestProgress.version || 1);
@@ -322,6 +331,7 @@ export default function TranscriptionApp() {
     } else {
       const nowStr = new Date().toLocaleString('ko-KR');
       setCurrentIndex(0);
+      setCompletedCount(0);
       setSentenceDrafts({});
       setInput('');
       setCurrentVersion(1);
@@ -339,7 +349,6 @@ export default function TranscriptionApp() {
     }
   };
 
-  // 관리자 화면에서 필사 화면으로 이동
   const handleGoToUserModeFromAdmin = () => {
     if (!userName.trim()) {
       setUserName('관리자');
@@ -355,7 +364,6 @@ export default function TranscriptionApp() {
     }
   };
 
-  // 관리자: 이력 삭제 기능
   const handleDeleteUserProgress = (targetUserName: string, progressKey: string) => {
     const pData = userProgressMap[targetUserName]?.[progressKey];
     const targetDoc = documents.find((d) => d.id === pData?.docId);
@@ -376,7 +384,6 @@ export default function TranscriptionApp() {
     }
   };
 
-  // 파싱 기능
   const handleLoadFromDataDir = async () => {
     const fileName = dataFileName.trim();
     if (!fileName) return alert('파일명(예: sample1.pdf, sample1.txt 등)을 입력해 주세요.');
@@ -542,7 +549,7 @@ export default function TranscriptionApp() {
     }
   };
 
-  // 통계 연산 로직 (전체 문서 기준 오타율 및 작성률 통합 연산)
+  // 통계 연산 로직 (이전 문장 누적 오타율 완벽 유지)
   const calculateStats = (
     targetDocData?: DocumentData,
     targetDrafts?: Record<number, string>,
@@ -566,7 +573,6 @@ export default function TranscriptionApp() {
     docObj.sentences.forEach((origSentence, idx) => {
       totalOriginalChars += origSentence.length;
 
-      // 현재 문장은 입력 중인 타자 수치 우선, 다른 문장들은 저장된 작성 수치 합산
       const typed = idx === cIdx ? (currInput !== undefined ? currInput : (drafts[idx] || '')) : (drafts[idx] || '');
       totalTypedChars += typed.length;
 
@@ -584,9 +590,8 @@ export default function TranscriptionApp() {
       completionRate = Math.min(100, Math.round((totalTypedChars / totalOriginalChars) * 100));
     }
 
-    // [전체 문서 기준 오타율 공식]: (전체 오타 수 / 현재까지 전체 작성한 총 글자 수) * 100
     const errorRate = totalTypedChars > 0 
-      ? (totalErrorChars > 0 ? Math.max(1, Math.round((totalErrorChars / totalTypedChars) * 100)) : 0)
+      ? Math.round((totalErrorChars / totalTypedChars) * 100)
       : 0;
 
     return { completionRate, errorRate, totalOriginalChars, totalTypedChars };
@@ -972,7 +977,7 @@ export default function TranscriptionApp() {
           </div>
         </div>
 
-        {/* 상단 실시간 연산 지표 카드 (전체 문서 기준 오타율 및 작성률 출력) */}
+        {/* 상단 실시간 연산 지표 카드 */}
         <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
@@ -981,11 +986,11 @@ export default function TranscriptionApp() {
               <span className="text-xs font-semibold text-slate-500 block mt-0.5">({stats.totalTypedChars} / {stats.totalOriginalChars} 글자)</span>
             </div>
             <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
-              <span className="text-xs md:text-sm font-extrabold text-slate-600 block mb-0.5">현재 오타율 (전체)</span>
+              <span className="text-xs md:text-sm font-extrabold text-slate-600 block mb-0.5">현재 오타율 (전체 누적)</span>
               <span className={`font-black text-lg md:text-xl ${stats.errorRate > 0 ? 'text-rose-500' : 'text-slate-800'}`}>
                 {stats.errorRate}%
               </span>
-              <span className="text-xs font-semibold text-slate-500 block mt-0.5">(전체 문서 작성분 반영)</span>
+              <span className="text-xs font-semibold text-slate-500 block mt-0.5">(이전 완료 문장 누적 반영)</span>
             </div>
           </div>
 
@@ -1014,9 +1019,17 @@ export default function TranscriptionApp() {
         <div className="space-y-3">
           <div className="flex justify-between items-center text-xs md:text-sm font-extrabold text-slate-600">
             <span>문장 {currentIndex + 1} / {totalSentences}</span>
-            <span>현재 문장 작성률: <strong className="text-emerald-600 text-sm md:text-base font-black">{Math.min(100, Math.round((input.length / (currentSentence.length || 1)) * 100))}%</strong></span>
+            <div className="flex items-center gap-2">
+              {isCurrentSentenceReadOnly && (
+                <span className="text-xs bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded">
+                  🔒 작성 완료됨 (수정 불가)
+                </span>
+              )}
+              <span>현재 문장 작성률: <strong className="text-emerald-600 text-sm md:text-base font-black">{Math.min(100, Math.round((input.length / (currentSentence.length || 1)) * 100))}%</strong></span>
+            </div>
           </div>
 
+          {/* 원문 및 입력 비교 상자 */}
           <div className="p-4 bg-slate-50 rounded-xl text-slate-800 font-serif text-lg leading-relaxed border border-slate-200/80 select-none min-h-[70px]">
             {currentSentence.split('').map((char, index) => {
               let colorClass = 'text-slate-400';
@@ -1031,12 +1044,19 @@ export default function TranscriptionApp() {
             })}
           </div>
 
+          {/* 필사 입력 박스 (작성 완료 문장은 readOnly & disabled 처리) */}
           <textarea
             value={input}
             onChange={(e) => handleInputChange(e.target.value)}
-            placeholder="위 문장을 똑같이 입력해 주세요..."
+            disabled={isCurrentSentenceReadOnly}
+            readOnly={isCurrentSentenceReadOnly}
+            placeholder={isCurrentSentenceReadOnly ? "이미 작성 완료된 문장입니다." : "위 문장을 똑같이 입력해 주세요..."}
             rows={2}
-            className="w-full p-3.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-800 font-serif text-lg text-slate-800 resize-none"
+            className={`w-full p-3.5 rounded-xl border font-serif text-lg text-slate-800 resize-none transition-colors ${
+              isCurrentSentenceReadOnly
+                ? 'bg-slate-100/80 border-slate-200 cursor-not-allowed text-slate-600'
+                : 'bg-white border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-800'
+            }`}
           />
 
           <div className="flex justify-between items-center pt-2 gap-2">
@@ -1057,18 +1077,24 @@ export default function TranscriptionApp() {
                 다음 문장 ▶
               </button>
 
+              {/* 작성 완료 버튼: 클릭 후 작성 완료 상태가 되면 disabled 처리 */}
               <button
                 onClick={handleCompleteSentence}
-                className="bg-emerald-600 text-white font-extrabold text-sm md:text-base px-5 py-2.5 rounded-xl hover:bg-emerald-700 transition-colors shadow-md whitespace-nowrap"
+                disabled={isCurrentSentenceReadOnly}
+                className={`font-extrabold text-sm md:text-base px-5 py-2.5 rounded-xl transition-colors shadow-md whitespace-nowrap ${
+                  isCurrentSentenceReadOnly
+                    ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none'
+                    : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                }`}
               >
-                작성 완료
+                {isCurrentSentenceReadOnly ? '완료됨' : '작성 완료'}
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 내 필사 이력 모달 (동일한 전체 오타율 로직 반영) */}
+      {/* 내 필사 이력 모달 */}
       {showUserHistoryModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl p-6 md:p-8 max-w-4xl w-full shadow-2xl border border-slate-100 space-y-6 animate-in fade-in zoom-in-95 duration-200">
