@@ -247,11 +247,11 @@ export default function TranscriptionApp() {
 
     if (newCompleted >= totalSentences) {
       saveUserProgress(currentIndex, updatedDrafts, newCompleted, undefined, undefined, nowStr);
-      const finalStats = calculateStats();
+      const finalStats = calculateStats(currentDoc, updatedDrafts, currentIndex, input, true);
       setCongratsData({
         startDate: startDate || nowStr,
         endDate: nowStr,
-        completionRate: finalStats.completionRate,
+        completionRate: 100,
         errorRate: finalStats.errorRate
       });
       setShowCongratsModal(true);
@@ -543,8 +543,14 @@ export default function TranscriptionApp() {
     }
   };
 
-  // 통계 연산
-  const calculateStats = (targetDocData?: DocumentData, targetDrafts?: Record<number, string>, targetCurrIdx?: number, targetInputVal?: string) => {
+  // 통계 연산 로직
+  const calculateStats = (
+    targetDocData?: DocumentData,
+    targetDrafts?: Record<number, string>,
+    targetCurrIdx?: number,
+    targetInputVal?: string,
+    isCompletedFlag?: boolean
+  ) => {
     const docObj = targetDocData || currentDoc;
     if (!docObj || docObj.sentences.length === 0) {
       return { completionRate: 0, errorRate: 0, totalOriginalChars: 0, totalTypedChars: 0 };
@@ -571,12 +577,15 @@ export default function TranscriptionApp() {
       }
     });
 
-    const completionRate = totalOriginalChars > 0 
-      ? Math.min(100, Math.round((totalTypedChars / totalOriginalChars) * 100)) 
-      : 0;
+    let completionRate = 0;
+    if (isCompletedFlag) {
+      completionRate = 100;
+    } else if (totalOriginalChars > 0) {
+      completionRate = Math.min(100, Math.round((totalTypedChars / totalOriginalChars) * 100));
+    }
 
     const errorRate = totalTypedChars > 0 
-      ? Math.round((totalErrorChars / totalTypedChars) * 100) 
+      ? (totalErrorChars > 0 ? Math.max(1, Math.round((totalErrorChars / totalTypedChars) * 100)) : 0)
       : 0;
 
     return { completionRate, errorRate, totalOriginalChars, totalTypedChars };
@@ -870,8 +879,8 @@ export default function TranscriptionApp() {
                         const total = targetDoc?.sentences.length || 0;
                         const verStr = `v${pData.version || 1}.0`;
                         
-                        const calc = calculateStats(targetDoc, pData.sentenceDrafts, pData.currentIndex, '');
                         const isDone = pData.isCompleted || (total > 0 && pData.completedCount >= total);
+                        const calc = calculateStats(targetDoc, pData.sentenceDrafts, pData.currentIndex, '', isDone);
 
                         return (
                           <tr key={`${uName}-${progKey}`} className="hover:bg-slate-50">
@@ -921,7 +930,7 @@ export default function TranscriptionApp() {
     );
   }
 
-  // 3. 일반 사용자 필사 화면 (세로 스크롤 방지를 위해 내부 여백 및 높이 컴팩트화)
+  // 3. 일반 사용자 필사 화면
   const totalSentences = currentDoc?.sentences.length || 0;
   const verStr = `v${currentVersion}.0`;
 
@@ -931,13 +940,11 @@ export default function TranscriptionApp() {
     <main className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-3 md:p-4 relative">
       <div className="max-w-3xl w-full bg-white rounded-3xl shadow-sm border border-slate-200 p-5 md:p-6 space-y-4">
         
-        {/* 상단 헤더 영역: 1줄 - 고유 제목, 2줄 - 버전 표기 */}
+        {/* 상단 헤더 영역 */}
         <div className="flex justify-between items-start border-b border-slate-100 pb-3">
           <div className="space-y-1">
             <span className="text-sm font-extrabold text-slate-600 block">사용자: {userName || '관리자'}님</span>
-            {/* 1번째 줄: 필사문 고유 제목 */}
             <h1 className="text-xl md:text-2xl font-black text-slate-800">{currentDoc?.title || '필사 연습'}</h1>
-            {/* 2번째 줄: 필사문 버전 표기 */}
             <div className="text-xs md:text-sm font-extrabold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md inline-block">
               현재 버전: {verStr}
             </div>
@@ -958,7 +965,7 @@ export default function TranscriptionApp() {
           </div>
         </div>
 
-        {/* 상단 실시간 연산 지표 카드 (세로 여백 콤팩트 축소) */}
+        {/* 상단 실시간 연산 지표 카드 */}
         <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
@@ -996,14 +1003,13 @@ export default function TranscriptionApp() {
           </div>
         </div>
 
-        {/* 필사 입력 및 제어 영역 (높이 축소) */}
+        {/* 필사 입력 및 제어 영역 */}
         <div className="space-y-3">
           <div className="flex justify-between items-center text-xs md:text-sm font-extrabold text-slate-600">
             <span>문장 {currentIndex + 1} / {totalSentences}</span>
             <span>현재 문장 작성률: <strong className="text-emerald-600 text-sm md:text-base font-black">{Math.min(100, Math.round((input.length / (currentSentence.length || 1)) * 100))}%</strong></span>
           </div>
 
-          {/* 원문 출력 상자 (text-lg 유지 / 최소 높이 콤팩트화) */}
           <div className="p-4 bg-slate-50 rounded-xl text-slate-800 font-serif text-lg leading-relaxed border border-slate-200/80 select-none min-h-[70px]">
             {currentSentence.split('').map((char, index) => {
               let colorClass = 'text-slate-400';
@@ -1018,7 +1024,6 @@ export default function TranscriptionApp() {
             })}
           </div>
 
-          {/* 필사 입력 박스 (text-lg 유지 / 행 수 rows={2}로 컴팩트 조정) */}
           <textarea
             value={input}
             onChange={(e) => handleInputChange(e.target.value)}
@@ -1027,7 +1032,6 @@ export default function TranscriptionApp() {
             className="w-full p-3.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-800 font-serif text-lg text-slate-800 resize-none"
           />
 
-          {/* 제어 버튼 영역 (여백 콤팩트 조정) */}
           <div className="flex justify-between items-center pt-2 gap-2">
             <button
               onClick={handlePrevSentence}
@@ -1057,10 +1061,10 @@ export default function TranscriptionApp() {
         </div>
       </div>
 
-      {/* 사용자 전용: 내 필사 이력 모달 */}
+      {/* 내 필사 이력 모달 (가로 크기 max-w-4xl 확장 및 열 제목 1줄 고정 적용) */}
       {showUserHistoryModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-3xl w-full shadow-2xl border border-slate-100 space-y-6 animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-3xl p-6 md:p-8 max-w-4xl w-full shadow-2xl border border-slate-100 space-y-6 animate-in fade-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center border-b border-slate-100 pb-4">
               <h2 className="text-2xl font-black text-slate-800">📜 {userName || '관리자'}님의 필사 이력</h2>
               <button
@@ -1078,12 +1082,12 @@ export default function TranscriptionApp() {
                 <table className="w-full text-left text-sm md:text-base text-slate-700 border-collapse">
                   <thead className="bg-slate-100 text-slate-700 sticky top-0 font-extrabold">
                     <tr>
-                      <th className="p-3.5">필사명(버전)</th>
-                      <th className="p-3.5">작성률</th>
-                      <th className="p-3.5">오타율</th>
-                      <th className="p-3.5">시작일</th>
-                      <th className="p-3.5">종료일</th>
-                      <th className="p-3.5 text-center">상태</th>
+                      <th className="p-3.5 whitespace-nowrap">필사명(버전)</th>
+                      <th className="p-3.5 whitespace-nowrap">작성률</th>
+                      <th className="p-3.5 whitespace-nowrap">오타율</th>
+                      <th className="p-3.5 whitespace-nowrap">시작일</th>
+                      <th className="p-3.5 whitespace-nowrap">종료일</th>
+                      <th className="p-3.5 text-center whitespace-nowrap">상태</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-medium">
@@ -1091,24 +1095,24 @@ export default function TranscriptionApp() {
                       const targetDoc = documents.find((d) => d.id === pData.docId);
                       const total = targetDoc?.sentences.length || 0;
                       const vNumStr = `v${pData.version || 1}.0`;
-                      const calc = calculateStats(targetDoc, pData.sentenceDrafts, pData.currentIndex, '');
                       const isDone = pData.isCompleted || (total > 0 && pData.completedCount >= total);
+                      const calc = calculateStats(targetDoc, pData.sentenceDrafts, pData.currentIndex, '', isDone);
 
                       return (
                         <tr key={progKey} className="hover:bg-slate-50">
                           <td className="p-3.5 font-bold text-slate-800">
                             {targetDoc?.title || pData.docId} <span className="text-emerald-600 font-black">({vNumStr})</span>
                           </td>
-                          <td className="p-3.5 font-bold text-slate-800">
+                          <td className="p-3.5 font-bold text-slate-800 whitespace-nowrap">
                             {calc.completionRate}% <span className="text-slate-500 text-xs font-semibold">({pData.completedCount}/{total})</span>
                           </td>
-                          <td className="p-3.5 font-bold">
+                          <td className="p-3.5 font-bold whitespace-nowrap">
                             <span className={calc.errorRate > 0 ? 'text-rose-500' : 'text-slate-800'}>
                               {calc.errorRate}%
                             </span>
                           </td>
-                          <td className="p-3.5 text-slate-600">{pData.startDate || '-'}</td>
-                          <td className="p-3.5 text-slate-600">
+                          <td className="p-3.5 text-slate-600 whitespace-nowrap">{pData.startDate || '-'}</td>
+                          <td className="p-3.5 text-slate-600 whitespace-nowrap">
                             {isDone ? (pData.endDate || pData.lastUpdated) : '-'}
                           </td>
                           <td className="p-3.5 text-center whitespace-nowrap">
