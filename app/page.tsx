@@ -65,7 +65,7 @@ export default function TranscriptionApp() {
   const [isReviewing, setIsReviewing] = useState(false);
 
   // 진행 상태 맵 (버전별 독립 키 사용)
-  const [userProgressMap, setUserProgressMap] = useState<Record<string, Record<string, UserProgress>>>({});
+  const [userProgressMap, setUserProgressMap] = useState<Record<string, Record<string, UserProgress>> >({});
 
   // 초기 로드
   useEffect(() => {
@@ -586,7 +586,7 @@ export default function TranscriptionApp() {
 
   // ---------------- 화면 렌더링 ----------------
 
-  // 1. 로그인 화면
+  // 1. 로그인 화면 (초기 화면: 필사문 고유 제목만 깔끔하게 출력)
   if (viewMode === 'login') {
     const activeDocuments = documents.filter((d) => !d.disabled);
 
@@ -617,18 +617,14 @@ export default function TranscriptionApp() {
                   <select
                     value={selectedDocId}
                     onChange={(e) => setSelectedDocId(e.target.value)}
-                    className="w-full p-4 border border-slate-300 rounded-xl text-base bg-white focus:outline-none focus:ring-2 focus:ring-slate-800 font-bold"
+                    className="w-full p-4 border border-slate-300 rounded-xl text-base bg-white focus:outline-none focus:ring-2 focus:ring-slate-800 font-bold whitespace-normal"
                   >
-                    {activeDocuments.map((d) => {
-                      const latestProg = getLatestUserProgress(userName.trim(), d.id);
-                      const verNum = latestProg?.version || 1;
-                      const verText = `(v${verNum}.0)`;
-                      return (
-                        <option key={d.id} value={d.id}>
-                          {d.title} {verText} ({d.sentences.length}문장)
-                        </option>
-                      );
-                    })}
+                    {/* 버전 표기 없이 순수 필사문 고유 명칭만 출력 */}
+                    {activeDocuments.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.title} ({d.sentences.length}문장)
+                      </option>
+                    ))}
                   </select>
                 ) : (
                   <div className="p-4 border border-amber-200 bg-amber-50 rounded-xl text-base text-amber-800 font-bold">
@@ -640,7 +636,7 @@ export default function TranscriptionApp() {
               <button
                 type="submit"
                 disabled={activeDocuments.length === 0}
-                className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl hover:bg-emerald-700 transition-colors text-lg shadow-sm disabled:opacity-50"
+                className="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl hover:bg-emerald-700 transition-colors text-lg shadow-sm disabled:opacity-50 whitespace-nowrap"
               >
                 필사 시작하기
               </button>
@@ -659,7 +655,7 @@ export default function TranscriptionApp() {
               />
               <button
                 type="submit"
-                className="bg-slate-800 text-white text-base px-5 py-3 rounded-lg font-bold hover:bg-slate-700"
+                className="bg-slate-800 text-white text-base px-5 py-3 rounded-lg font-bold hover:bg-slate-700 whitespace-nowrap"
               >
                 접속
               </button>
@@ -683,13 +679,13 @@ export default function TranscriptionApp() {
             <div className="flex gap-2">
               <button
                 onClick={handleGoToUserModeFromAdmin}
-                className="text-sm bg-emerald-600 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-emerald-700 transition-colors shadow-xs"
+                className="text-sm bg-emerald-600 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-emerald-700 transition-colors shadow-xs whitespace-nowrap"
               >
                 필사 화면으로 이동 ✏️
               </button>
               <button
                 onClick={resetAllAndGoToLogin}
-                className="text-sm bg-slate-200 text-slate-700 px-4 py-2.5 rounded-lg font-bold hover:bg-slate-300"
+                className="text-sm bg-slate-200 text-slate-700 px-4 py-2.5 rounded-lg font-bold hover:bg-slate-300 whitespace-nowrap"
               >
                 로그아웃
               </button>
@@ -714,7 +710,7 @@ export default function TranscriptionApp() {
                   />
                   <button
                     onClick={handleLoadFromDataDir}
-                    className="bg-slate-800 text-white text-xs px-5 py-2.5 rounded-lg font-medium hover:bg-slate-700"
+                    className="bg-slate-800 text-white text-xs px-5 py-2.5 rounded-lg font-medium hover:bg-slate-700 whitespace-nowrap"
                   >
                     파일 불러오기 및 파싱
                   </button>
@@ -767,7 +763,7 @@ export default function TranscriptionApp() {
                     />
                     <button
                       onClick={handleAddSection}
-                      className="bg-slate-800 text-white text-xs px-4 py-2 rounded-lg font-medium hover:bg-slate-700"
+                      className="bg-slate-800 text-white text-xs px-4 py-2 rounded-lg font-medium hover:bg-slate-700 whitespace-nowrap"
                     >
                       선택한 문장 구역 추가
                     </button>
@@ -800,7 +796,7 @@ export default function TranscriptionApp() {
 
                 <button
                   onClick={handleConfirmDocument}
-                  className="w-full bg-emerald-600 text-white font-medium py-3 rounded-xl hover:bg-emerald-700 transition-colors text-sm"
+                  className="w-full bg-emerald-600 text-white font-medium py-3 rounded-xl hover:bg-emerald-700 transition-colors text-sm whitespace-nowrap"
                 >
                   최종 필사문 등록 완료
                 </button>
@@ -827,7 +823,7 @@ export default function TranscriptionApp() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleToggleDisableDoc(doc.id)}
-                        className={`text-xs px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
+                        className={`text-xs px-2.5 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap ${
                           doc.disabled
                             ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
                             : 'bg-amber-100 text-amber-800 hover:bg-amber-200'
@@ -838,7 +834,7 @@ export default function TranscriptionApp() {
 
                       <button
                         onClick={() => handleDeleteDoc(doc.id)}
-                        className="text-xs bg-rose-100 text-rose-700 hover:bg-rose-200 px-2.5 py-1.5 rounded-lg font-medium transition-colors"
+                        className="text-xs bg-rose-100 text-rose-700 hover:bg-rose-200 px-2.5 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap"
                       >
                         삭제
                       </button>
@@ -849,7 +845,7 @@ export default function TranscriptionApp() {
             </div>
           </div>
 
-          {/* 관리자: 필사 이력 대시보드 */}
+          {/* 관리자: 전체 사용자 필사 이력 대시보드 */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
             <h2 className="text-lg font-bold text-slate-800 mb-4">전체 사용자 필사 이력 대시보드</h2>
             {Object.keys(userProgressMap).length === 0 ? (
@@ -890,11 +886,11 @@ export default function TranscriptionApp() {
                             </td>
                             <td className="p-3">
                               {isDone ? (
-                                <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold">
+                                <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold whitespace-nowrap">
                                   완주 ({pData.completedCount}/{total})
                                 </span>
                               ) : (
-                                <span>
+                                <span className="whitespace-nowrap">
                                   진행 중 (<strong className="text-emerald-600">{pData.completedCount}</strong>/{total})
                                 </span>
                               )}
@@ -907,7 +903,7 @@ export default function TranscriptionApp() {
                             <td className="p-3 text-center">
                               <button
                                 onClick={() => handleDeleteUserProgress(uName, progKey)}
-                                className="bg-rose-100 text-rose-700 hover:bg-rose-200 px-2 py-1 rounded font-medium transition-colors"
+                                className="bg-rose-100 text-rose-700 hover:bg-rose-200 px-2 py-1 rounded font-medium transition-colors whitespace-nowrap"
                               >
                                 삭제
                               </button>
@@ -926,10 +922,9 @@ export default function TranscriptionApp() {
     );
   }
 
-  // 3. 일반 사용자 필사 화면 (본문/입력란은 기존 크기 유지, 주변 설명 및 상태 글자 대폭 확대)
+  // 3. 일반 사용자 필사 화면 (버전을 2번째 줄에 표기, 버튼 줄바꿈 방지, 수치 크기 알맞게 감소)
   const totalSentences = currentDoc?.sentences.length || 0;
   const verStr = `v${currentVersion}.0`;
-  const displayTitle = `${currentDoc?.title || '필사 연습'} (${verStr})`;
 
   const currentUserHistory = userProgressMap[userName.trim()] || {};
 
@@ -937,40 +932,46 @@ export default function TranscriptionApp() {
     <main className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 relative">
       <div className="max-w-3xl w-full bg-white rounded-3xl shadow-sm border border-slate-200 p-8 md:p-10 space-y-8">
         
-        {/* 상단 헤더 영역 (주변부 글자 확대) */}
-        <div className="flex justify-between items-center border-b border-slate-100 pb-5">
-          <div>
-            <span className="text-base font-extrabold text-slate-600 block mb-1">사용자: {userName || '관리자'}님</span>
-            <h1 className="text-2xl md:text-3xl font-black text-slate-800">{displayTitle}</h1>
+        {/* 상단 헤더 영역: 1줄 - 고유 제목, 2줄 - 버전 표기 */}
+        <div className="flex justify-between items-start border-b border-slate-100 pb-5">
+          <div className="space-y-1">
+            <span className="text-base font-extrabold text-slate-600 block">사용자: {userName || '관리자'}님</span>
+            {/* 1번째 줄: 필사문 고유 제목 */}
+            <h1 className="text-2xl md:text-3xl font-black text-slate-800">{currentDoc?.title || '필사 연습'}</h1>
+            {/* 2번째 줄: 필사문 버전 표기 */}
+            <div className="text-sm md:text-base font-extrabold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-md inline-block">
+              현재 버전: {verStr}
+            </div>
           </div>
-          <div className="flex gap-3 items-center">
+          <div className="flex gap-2.5 items-center">
             <button
               onClick={() => setShowUserHistoryModal(true)}
-              className="text-base bg-slate-100 text-slate-800 px-4 py-2.5 rounded-xl font-extrabold hover:bg-slate-200 transition-colors border border-slate-200"
+              className="text-sm md:text-base bg-slate-100 text-slate-800 px-3.5 py-2.5 rounded-xl font-extrabold hover:bg-slate-200 transition-colors border border-slate-200 whitespace-nowrap"
             >
               내 필사 이력 📜
             </button>
-            {/* 정식 [필사종료] 버튼 */}
             <button
               onClick={resetAllAndGoToLogin}
-              className="text-base bg-slate-200 text-slate-800 hover:bg-rose-100 hover:text-rose-700 px-5 py-2.5 rounded-xl font-extrabold transition-colors border border-slate-300"
+              className="text-sm md:text-base bg-slate-200 text-slate-800 hover:bg-rose-100 hover:text-rose-700 px-4 py-2.5 rounded-xl font-extrabold transition-colors border border-slate-300 whitespace-nowrap"
             >
               필사종료
             </button>
           </div>
         </div>
 
-        {/* 상단 실시간 연산 지표 카드 (주변 설명 글자 확 키움) */}
+        {/* 상단 실시간 연산 지표 카드 (% 숫자를 더 완만하고 알맞은 크기로 조정) */}
         <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200/80 space-y-5">
           <div className="grid grid-cols-2 gap-5">
             <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
               <span className="text-base font-extrabold text-slate-600 block mb-1">전체 문서 작성률</span>
-              <span className="text-emerald-600 font-black text-3xl md:text-4xl">{stats.completionRate}%</span>
+              {/* % 수치 크기 축소: text-xl md:text-2xl */}
+              <span className="text-emerald-600 font-black text-xl md:text-2xl">{stats.completionRate}%</span>
               <span className="text-sm font-semibold text-slate-500 block mt-1">({stats.totalTypedChars} / {stats.totalOriginalChars} 글자)</span>
             </div>
             <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
               <span className="text-base font-extrabold text-slate-600 block mb-1">현재 오타율</span>
-              <span className={`font-black text-3xl md:text-4xl ${stats.errorRate > 0 ? 'text-rose-500' : 'text-slate-800'}`}>
+              {/* % 수치 크기 축소: text-xl md:text-2xl */}
+              <span className={`font-black text-xl md:text-2xl ${stats.errorRate > 0 ? 'text-rose-500' : 'text-slate-800'}`}>
                 {stats.errorRate}%
               </span>
               <span className="text-sm font-semibold text-slate-500 block mt-1">(실시간 교정 반영)</span>
@@ -980,7 +981,7 @@ export default function TranscriptionApp() {
           <div className="space-y-2 pt-1">
             <div className="flex justify-between items-center text-base font-extrabold text-slate-700">
               <span>작성 진행률</span>
-              <span className="text-slate-900 text-lg">{stats.completionRate}%</span>
+              <span className="text-slate-900 text-base">{stats.completionRate}%</span>
             </div>
             <div className="w-full bg-slate-200 h-3.5 rounded-full overflow-hidden">
               <div
@@ -992,7 +993,7 @@ export default function TranscriptionApp() {
 
           <div className="flex justify-between items-center text-base font-extrabold text-slate-700 border-t border-slate-200/60 pt-3">
             <span>
-              현재 위치: <strong className="text-slate-900 font-black text-xl">{currentIndex + 1}</strong> / {totalSentences} 문장
+              현재 위치: <strong className="text-slate-900 font-black text-lg">{currentIndex + 1}</strong> / {totalSentences} 문장
             </span>
             <span className="text-sm font-semibold text-slate-500">시작일: {startDate || '-'}</span>
           </div>
@@ -1002,10 +1003,10 @@ export default function TranscriptionApp() {
         <div className="space-y-5">
           <div className="flex justify-between items-center text-base font-extrabold text-slate-600">
             <span>문장 {currentIndex + 1} / {totalSentences}</span>
-            <span>현재 문장 작성률: <strong className="text-emerald-600 text-lg font-black">{Math.min(100, Math.round((input.length / (currentSentence.length || 1)) * 100))}%</strong></span>
+            <span>현재 문장 작성률: <strong className="text-emerald-600 text-base font-black">{Math.min(100, Math.round((input.length / (currentSentence.length || 1)) * 100))}%</strong></span>
           </div>
 
-          {/* 원문 출력 상자 (요청에 따라 기존 크기 text-lg 유지) */}
+          {/* 원문 출력 상자 (기존 크기 text-lg 유지) */}
           <div className="p-5 bg-slate-50 rounded-xl text-slate-800 font-serif text-lg leading-relaxed border border-slate-200/80 select-none min-h-[100px]">
             {currentSentence.split('').map((char, index) => {
               let colorClass = 'text-slate-400';
@@ -1020,7 +1021,7 @@ export default function TranscriptionApp() {
             })}
           </div>
 
-          {/* 필사 입력 박스 (요청에 따라 기존 크기 text-lg 유지) */}
+          {/* 필사 입력 박스 (기존 크기 text-lg 유지) */}
           <textarea
             value={input}
             onChange={(e) => handleInputChange(e.target.value)}
@@ -1029,28 +1030,28 @@ export default function TranscriptionApp() {
             className="w-full p-4 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-800 font-serif text-lg text-slate-800 resize-none"
           />
 
-          {/* 제어 버튼 영역 (버튼 및 글자 크게) */}
-          <div className="flex justify-between items-center pt-3 gap-4">
+          {/* 제어 버튼 영역 (버튼 텍스트 줄바꿈 방지) */}
+          <div className="flex justify-between items-center pt-3 gap-3">
             <button
               onClick={handlePrevSentence}
               disabled={currentIndex === 0}
-              className="px-5 py-3.5 rounded-2xl border border-slate-300 text-base font-extrabold bg-white text-slate-800 hover:bg-slate-100 disabled:opacity-30 shadow-xs"
+              className="px-4 md:px-5 py-3 rounded-2xl border border-slate-300 text-base font-extrabold bg-white text-slate-800 hover:bg-slate-100 disabled:opacity-30 shadow-xs whitespace-nowrap"
             >
               ◀ 이전 문장
             </button>
 
-            <div className="flex gap-3">
+            <div className="flex gap-2.5">
               <button
                 onClick={handleNextSentence}
                 disabled={currentIndex === totalSentences - 1}
-                className="px-5 py-3.5 rounded-2xl border border-slate-300 text-base font-extrabold bg-slate-100 text-slate-800 hover:bg-slate-200 transition-colors disabled:opacity-30 shadow-xs"
+                className="px-4 md:px-5 py-3 rounded-2xl border border-slate-300 text-base font-extrabold bg-slate-100 text-slate-800 hover:bg-slate-200 transition-colors disabled:opacity-30 shadow-xs whitespace-nowrap"
               >
                 다음 문장 ▶
               </button>
 
               <button
                 onClick={handleCompleteSentence}
-                className="bg-emerald-600 text-white font-extrabold text-base px-6 py-3.5 rounded-2xl hover:bg-emerald-700 transition-colors shadow-md"
+                className="bg-emerald-600 text-white font-extrabold text-base px-5 md:px-6 py-3 rounded-2xl hover:bg-emerald-700 transition-colors shadow-md whitespace-nowrap"
               >
                 작성 완료
               </button>
@@ -1059,7 +1060,7 @@ export default function TranscriptionApp() {
         </div>
       </div>
 
-      {/* 사용자 전용: 내 필사 이력 모달 (주변 설명 글자 확대) */}
+      {/* 사용자 전용: 내 필사 이력 모달 */}
       {showUserHistoryModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl p-6 md:p-8 max-w-3xl w-full shadow-2xl border border-slate-100 space-y-6 animate-in fade-in zoom-in-95 duration-200">
@@ -1067,7 +1068,7 @@ export default function TranscriptionApp() {
               <h2 className="text-2xl font-black text-slate-800">📜 {userName || '관리자'}님의 필사 이력</h2>
               <button
                 onClick={() => setShowUserHistoryModal(false)}
-                className="text-lg text-slate-500 hover:text-slate-800 font-extrabold"
+                className="text-lg text-slate-500 hover:text-slate-800 font-extrabold whitespace-nowrap"
               >
                 닫기 ✕
               </button>
@@ -1113,7 +1114,7 @@ export default function TranscriptionApp() {
                           <td className="p-3.5 text-slate-600">
                             {isDone ? (pData.endDate || pData.lastUpdated) : '-'}
                           </td>
-                          <td className="p-3.5 text-center">
+                          <td className="p-3.5 text-center whitespace-nowrap">
                             {isDone ? (
                               <span className="bg-emerald-100 text-emerald-800 px-3 py-1 rounded-lg font-bold text-xs">
                                 완주됨 🎉
@@ -1135,7 +1136,7 @@ export default function TranscriptionApp() {
             <div className="flex justify-end pt-2">
               <button
                 onClick={() => setShowUserHistoryModal(false)}
-                className="bg-slate-800 text-white font-bold px-7 py-3 rounded-xl hover:bg-slate-700 transition-colors text-base"
+                className="bg-slate-800 text-white font-bold px-7 py-3 rounded-xl hover:bg-slate-700 transition-colors text-base whitespace-nowrap"
               >
                 닫기
               </button>
@@ -1193,7 +1194,7 @@ export default function TranscriptionApp() {
 
             <button
               onClick={() => setShowCongratsModal(false)}
-              className="w-full bg-slate-900 text-white font-bold py-4 rounded-xl hover:bg-slate-800 transition-colors text-base shadow-md"
+              className="w-full bg-slate-900 text-white font-bold py-4 rounded-xl hover:bg-slate-800 transition-colors text-base shadow-md whitespace-nowrap"
             >
               확인 및 결과 닫기
             </button>
