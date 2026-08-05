@@ -127,13 +127,12 @@ export default function TranscriptionApp() {
     }
   }, [currentIndex, viewMode]);
 
-  // 입력값 변경 시 내역 캐시 업데이트
+  // 입력값 변경 시 내역 캐시 업데이트 및 저장소 동기화
   const handleInputChange = (val: string) => {
     setInput(val);
-    setSentenceDrafts((prev) => ({
-      ...prev,
-      [currentIndex]: val
-    }));
+    const updatedDrafts = { ...sentenceDrafts, [currentIndex]: val };
+    setSentenceDrafts(updatedDrafts);
+    saveUserProgress(currentIndex, updatedDrafts);
   };
 
   const resetAllAndGoToLogin = () => {
@@ -543,7 +542,7 @@ export default function TranscriptionApp() {
     }
   };
 
-  // 통계 연산 로직
+  // 통계 연산 로직 (전체 문서 기준 오타율 및 작성률 통합 연산)
   const calculateStats = (
     targetDocData?: DocumentData,
     targetDrafts?: Record<number, string>,
@@ -567,7 +566,8 @@ export default function TranscriptionApp() {
     docObj.sentences.forEach((origSentence, idx) => {
       totalOriginalChars += origSentence.length;
 
-      const typed = idx === cIdx ? currInput : (drafts[idx] || '');
+      // 현재 문장은 입력 중인 타자 수치 우선, 다른 문장들은 저장된 작성 수치 합산
+      const typed = idx === cIdx ? (currInput !== undefined ? currInput : (drafts[idx] || '')) : (drafts[idx] || '');
       totalTypedChars += typed.length;
 
       for (let i = 0; i < typed.length; i++) {
@@ -584,6 +584,7 @@ export default function TranscriptionApp() {
       completionRate = Math.min(100, Math.round((totalTypedChars / totalOriginalChars) * 100));
     }
 
+    // [전체 문서 기준 오타율 공식]: (전체 오타 수 / 현재까지 전체 작성한 총 글자 수) * 100
     const errorRate = totalTypedChars > 0 
       ? (totalErrorChars > 0 ? Math.max(1, Math.round((totalErrorChars / totalTypedChars) * 100)) : 0)
       : 0;
@@ -880,7 +881,13 @@ export default function TranscriptionApp() {
                         const verStr = `v${pData.version || 1}.0`;
                         
                         const isDone = pData.isCompleted || (total > 0 && pData.completedCount >= total);
-                        const calc = calculateStats(targetDoc, pData.sentenceDrafts, pData.currentIndex, '', isDone);
+                        const calc = calculateStats(
+                          targetDoc,
+                          pData.sentenceDrafts,
+                          pData.currentIndex,
+                          pData.sentenceDrafts[pData.currentIndex] || '',
+                          isDone
+                        );
 
                         return (
                           <tr key={`${uName}-${progKey}`} className="hover:bg-slate-50">
@@ -965,7 +972,7 @@ export default function TranscriptionApp() {
           </div>
         </div>
 
-        {/* 상단 실시간 연산 지표 카드 */}
+        {/* 상단 실시간 연산 지표 카드 (전체 문서 기준 오타율 및 작성률 출력) */}
         <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
@@ -974,11 +981,11 @@ export default function TranscriptionApp() {
               <span className="text-xs font-semibold text-slate-500 block mt-0.5">({stats.totalTypedChars} / {stats.totalOriginalChars} 글자)</span>
             </div>
             <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
-              <span className="text-xs md:text-sm font-extrabold text-slate-600 block mb-0.5">현재 오타율</span>
+              <span className="text-xs md:text-sm font-extrabold text-slate-600 block mb-0.5">현재 오타율 (전체)</span>
               <span className={`font-black text-lg md:text-xl ${stats.errorRate > 0 ? 'text-rose-500' : 'text-slate-800'}`}>
                 {stats.errorRate}%
               </span>
-              <span className="text-xs font-semibold text-slate-500 block mt-0.5">(실시간 교정 반영)</span>
+              <span className="text-xs font-semibold text-slate-500 block mt-0.5">(전체 문서 작성분 반영)</span>
             </div>
           </div>
 
@@ -1061,7 +1068,7 @@ export default function TranscriptionApp() {
         </div>
       </div>
 
-      {/* 내 필사 이력 모달 (가로 크기 max-w-4xl 확장 및 열 제목 1줄 고정 적용) */}
+      {/* 내 필사 이력 모달 (동일한 전체 오타율 로직 반영) */}
       {showUserHistoryModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl p-6 md:p-8 max-w-4xl w-full shadow-2xl border border-slate-100 space-y-6 animate-in fade-in zoom-in-95 duration-200">
@@ -1096,7 +1103,19 @@ export default function TranscriptionApp() {
                       const total = targetDoc?.sentences.length || 0;
                       const vNumStr = `v${pData.version || 1}.0`;
                       const isDone = pData.isCompleted || (total > 0 && pData.completedCount >= total);
-                      const calc = calculateStats(targetDoc, pData.sentenceDrafts, pData.currentIndex, '', isDone);
+
+                      const isCurrentActiveDoc = selectedDocId === pData.docId && currentVersion === pData.version;
+                      const draftsForCalc = isCurrentActiveDoc
+                        ? { ...pData.sentenceDrafts, [currentIndex]: input }
+                        : pData.sentenceDrafts;
+
+                      const calc = calculateStats(
+                        targetDoc,
+                        draftsForCalc,
+                        isCurrentActiveDoc ? currentIndex : pData.currentIndex,
+                        isCurrentActiveDoc ? input : draftsForCalc[pData.currentIndex] || '',
+                        isDone
+                      );
 
                       return (
                         <tr key={progKey} className="hover:bg-slate-50">
