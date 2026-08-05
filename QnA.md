@@ -42,7 +42,7 @@ transcription-app-github/              <- 최상위 Git 리포지토리
    * `app/page.tsx` 최상단에 Worker 경로 지정 필수:
      ```typescript
      import * as pdfjsLib from 'pdfjs-dist';
-     pdfjsLib.GlobalWorkerOptions.workerSrc = `//[cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js](https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js)`;
+     pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
      ```
 
 3. **Next.js 번들러 외부화 설정 (`next.config.ts`)**
@@ -86,9 +86,22 @@ transcription-app-github/              <- 최상위 Git 리포지토리
 ### Q7. 관리자 접속 보안 강화
 * **해결**: 비밀번호를 `admin!@#`로 변경 및 UI 상의 비밀번호 힌트 문구 전면 제거.
 
+### Q8. AI 대화창에서 마크다운 코드 상자가 중간에 끊기거나 짤리는 현상
+* **원인**: 마크다운 문서를 코드 상자(```)로 제공할 때 문서 내부의 코드 예시(```bash, ```typescript 등)의 백틱 3개 기호를 만나면서 외부 상자가 일찍 닫혀버리는 마크다운 문법 중첩 이슈.
+* **해결**: AI가 답변 출력 시 최상위 코드 상자를 **백틱 4개(````markdown)**로 감싸서 내부에 백틱 3개 기호가 있더라도 상자가 조기 닫힘 없이 하나의 완성된 상자로 출력되도록 교정.
+
 ---
 
-## 🚀 3. GitHub 커밋 안내
+## 💡 3. AI 프롬프트 작성 팁 (마크다운 문서 요청 시 가이드)
+
+다음번에 AI에게 마크다운(`*.md`) 문서를 만들어달라고 할 때, 문서 끊김 없이 깔끔한 결과물을 받고 싶다면 프롬프트 끝에 아래 문구를 함께 적어주시면 됩니다.
+
+* **추천 프롬프트 예시**:
+  > "문서 내부 코드 블록 때문에 마크다운 상자가 조기 닫히지 않도록 **최상단 상자는 백틱 4개(````markdown)로 감싸서** 끊김 없는 하나의 코드 블록으로 작성해 주세요."
+
+---
+
+## 🚀 4. GitHub 커밋 안내
 
 `QnA.md` 파일 저장 완료 후 아래 절차로 커밋 및 푸시를 진행합니다.
 
