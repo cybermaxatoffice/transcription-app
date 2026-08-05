@@ -133,7 +133,7 @@ export default function TranscriptionApp() {
 
   // 입력값 변경 시 (작성 완료되지 않은 현재 문장만 수정 가능)
   const handleInputChange = (val: string) => {
-    if (isCurrentSentenceReadOnly) return; // 완주 문장 수정 불가 보호
+    if (isCurrentSentenceReadOnly) return;
     setInput(val);
     const updatedDrafts = { ...sentenceDrafts, [currentIndex]: val };
     setSentenceDrafts(updatedDrafts);
@@ -244,7 +244,6 @@ export default function TranscriptionApp() {
     const updatedDrafts = { ...sentenceDrafts, [currentIndex]: input };
     setSentenceDrafts(updatedDrafts);
 
-    // 완주 카운트 단방향 증가
     const newCompleted = Math.max(completedCount, currentIndex + 1);
     setCompletedCount(newCompleted);
 
@@ -549,7 +548,7 @@ export default function TranscriptionApp() {
     }
   };
 
-  // 통계 연산 로직 (이전 문장 누적 오타율 완벽 유지)
+  // 통계 연산 로직 (전체 원문 글자 수 기준 오타율 및 누적 진행율 계산)
   const calculateStats = (
     targetDocData?: DocumentData,
     targetDrafts?: Record<number, string>,
@@ -576,10 +575,17 @@ export default function TranscriptionApp() {
       const typed = idx === cIdx ? (currInput !== undefined ? currInput : (drafts[idx] || '')) : (drafts[idx] || '');
       totalTypedChars += typed.length;
 
-      for (let i = 0; i < typed.length; i++) {
-        if (i >= origSentence.length || typed[i] !== origSentence[i]) {
+      // 이미 작성 완료된 문장이거나 현재 작성 중인 부분까지의 오타 비교
+      const compareLength = Math.min(origSentence.length, typed.length);
+      for (let i = 0; i < compareLength; i++) {
+        if (typed[i] !== origSentence[i]) {
           totalErrorChars++;
         }
+      }
+
+      // 만약 작성 완료 버튼을 누른 완주 문장이라면, 빠뜨린 문장부호/글자도 오타로 추가 집계
+      if (idx < completedCount && typed.length < origSentence.length) {
+        totalErrorChars += (origSentence.length - typed.length);
       }
     });
 
@@ -590,8 +596,9 @@ export default function TranscriptionApp() {
       completionRate = Math.min(100, Math.round((totalTypedChars / totalOriginalChars) * 100));
     }
 
-    const errorRate = totalTypedChars > 0 
-      ? Math.round((totalErrorChars / totalTypedChars) * 100)
+    // [핵심 변경]: 분모를 '타이핑한 글자 수'가 아닌 '전체 원문 글자 수(totalOriginalChars)'로 지정
+    const errorRate = totalOriginalChars > 0 
+      ? Math.round((totalErrorChars / totalOriginalChars) * 100)
       : 0;
 
     return { completionRate, errorRate, totalOriginalChars, totalTypedChars };
@@ -986,11 +993,11 @@ export default function TranscriptionApp() {
               <span className="text-xs font-semibold text-slate-500 block mt-0.5">({stats.totalTypedChars} / {stats.totalOriginalChars} 글자)</span>
             </div>
             <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
-              <span className="text-xs md:text-sm font-extrabold text-slate-600 block mb-0.5">현재 오타율 (전체 누적)</span>
+              <span className="text-xs md:text-sm font-extrabold text-slate-600 block mb-0.5">현재 오타율 (전체 원문 기준)</span>
               <span className={`font-black text-lg md:text-xl ${stats.errorRate > 0 ? 'text-rose-500' : 'text-slate-800'}`}>
                 {stats.errorRate}%
               </span>
-              <span className="text-xs font-semibold text-slate-500 block mt-0.5">(이전 완료 문장 누적 반영)</span>
+              <span className="text-xs font-semibold text-slate-500 block mt-0.5">(전체 원문 글자 수 대비 계산)</span>
             </div>
           </div>
 
