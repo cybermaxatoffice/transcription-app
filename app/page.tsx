@@ -9,6 +9,7 @@ interface DocumentData {
   id: string;
   title: string;
   sentences: string[];
+  disabled?: boolean; // 사용중지 상태 여부
 }
 
 interface UserProgress {
@@ -56,7 +57,8 @@ export default function TranscriptionApp() {
     if (loadedDocs) {
       const parsedDocs: DocumentData[] = JSON.parse(loadedDocs);
       setDocuments(parsedDocs);
-      if (parsedDocs.length > 0) setSelectedDocId(parsedDocs[0].id);
+      const activeDocs = parsedDocs.filter((d) => !d.disabled);
+      if (activeDocs.length > 0) setSelectedDocId(activeDocs[0].id);
     } else {
       const defaultDoc: DocumentData = {
         id: 'default-1',
@@ -64,7 +66,8 @@ export default function TranscriptionApp() {
         sentences: [
           "삶이 있는 한 희망은 있다.",
           "천천히 걸어도 정성을 다해 적어 내려가는 순간에 집중해 보세요."
-        ]
+        ],
+        disabled: false
       };
       setDocuments([defaultDoc]);
       setSelectedDocId(defaultDoc.id);
@@ -100,8 +103,10 @@ export default function TranscriptionApp() {
     setAdminPassword('');
     setInput('');
     setSentenceDrafts({});
-    if (documents.length > 0) {
-      setSelectedDocId(documents[0].id);
+    
+    const activeDocs = documents.filter((d) => !d.disabled);
+    if (activeDocs.length > 0) {
+      setSelectedDocId(activeDocs[0].id);
     } else {
       setSelectedDocId('');
     }
@@ -139,7 +144,7 @@ export default function TranscriptionApp() {
     localStorage.setItem('transcription_progress', JSON.stringify(newProgressMap));
   };
 
-  // 1. 이전 문장 버튼
+  // 1. 이전 줄 버튼
   const handlePrevSentence = () => {
     if (currentIndex > 0) {
       const prevIdx = currentIndex - 1;
@@ -151,7 +156,7 @@ export default function TranscriptionApp() {
     }
   };
 
-  // 2. 다음 문장 버튼
+  // 2. 다음 줄 버튼
   const handleNextSentence = () => {
     if (!currentDoc) return;
     const totalSentences = currentDoc.sentences.length;
@@ -165,7 +170,7 @@ export default function TranscriptionApp() {
       setCurrentIndex(nextIdx);
     } else {
       saveUserProgress(currentIndex, updatedDrafts);
-      alert('마지막 문장입니다.');
+      alert('마지막 줄입니다.');
     }
   };
 
@@ -181,13 +186,18 @@ export default function TranscriptionApp() {
     const newCompleted = Math.max(currentCompleted, currentIndex + 1);
 
     saveUserProgress(currentIndex, updatedDrafts, newCompleted);
-    alert(`현재 문장 및 진행 상황이 저장되었습니다! (${newCompleted}/${totalSentences} 문장 완주)`);
+    alert(`현재 줄 및 진행 상황이 저장되었습니다! (${newCompleted}/${totalSentences} 줄 완주)`);
   };
 
   const handleUserLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (!userName.trim()) return alert('사용자 이름을 입력해 주세요.');
     if (!selectedDocId) return alert('필사할 필사문 제목을 선택해 주세요.');
+
+    const targetDoc = documents.find((d) => d.id === selectedDocId);
+    if (targetDoc?.disabled) {
+      return alert('현재 사용이 중지된 필사문입니다. 다른 필사문을 선택해 주세요.');
+    }
 
     setViewMode('user');
 
@@ -225,21 +235,28 @@ export default function TranscriptionApp() {
     try {
       const response = await fetch(filePath);
       if (!response.ok) {
-        return alert(`public/data/${dataFileName} 파일을 찾을 수 없습니다. 경로 및 파일명을 확인해 주세요.`);
+        return alert(`public/data/${dataFileName} 파일을 서버에서 찾을 수 없습니다. (상태 코드: ${response.status})`);
       }
 
       const arrayBuffer = await response.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+      const loadingTask = pdfjsLib.getDocument({
+        data: arrayBuffer,
+        cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+        cMapPacked: true,
+        standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/standard_fonts/',
+      });
+
+      const pdf = await loadingTask.promise;
       let fullText = '';
 
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const tokenProps = await page.getTextContent();
         const pageText = tokenProps.items.map((item: any) => item.str).join(' ');
-        fullText += pageText + '\n'; // 줄바꿈 구분자 유지
+        fullText += pageText + '\n';
       }
 
-      // 한 줄(줄바꿈) 단위 분할
       const rawSentences = fullText
         .split(/\r?\n/)
         .map((s) => s.trim())
@@ -253,8 +270,9 @@ export default function TranscriptionApp() {
       } else {
         alert('PDF 내부에 추출 가능한 텍스트가 없습니다.');
       }
-    } catch (error) {
-      alert('PDF 파일 읽기 중 오류가 발생했습니다.');
+    } catch (error: any) {
+      console.error('PDF parsing detail error:', error);
+      alert(`PDF 파싱 오류 상세 내용:\n${error?.message || error || '알 수 없는 오류'}`);
     }
   };
 
@@ -311,7 +329,8 @@ export default function TranscriptionApp() {
     const newDoc: DocumentData = {
       id: `doc-${Date.now()}`,
       title: extractedTitle.trim(),
-      sentences: mergedSentences
+      sentences: mergedSentences,
+      disabled: false
     };
 
     const updatedDocs = [...documents, newDoc];
@@ -322,6 +341,50 @@ export default function TranscriptionApp() {
     setSections([]);
     setExtractedTitle('');
     alert(`필사문 '${newDoc.title}'이(가) 성공적으로 등록되었습니다! (총 ${mergedSentences.length}개 줄)`);
+  };
+
+  // --- 관리자: 필사문 사용중지 / 사용재개 토글 ---
+  const handleToggleDisableDoc = (id: string) => {
+    const targetDoc = documents.find((d) => d.id === id);
+    if (!targetDoc) return;
+
+    const willDisable = !targetDoc.disabled;
+    const actionText = willDisable ? '사용중지' : '사용재개';
+
+    if (confirm(`'${targetDoc.title}' 필사문을 ${actionText} 처리하시겠습니까?`)) {
+      const updatedDocs = documents.map((doc) =>
+        doc.id === id ? { ...doc, disabled: willDisable } : doc
+      );
+
+      setDocuments(updatedDocs);
+      localStorage.setItem('transcription_docs', JSON.stringify(updatedDocs));
+
+      // 현재 선택된 문서가 사용 중지되었을 경우 선택 문서 재설정
+      if (selectedDocId === id && willDisable) {
+        const nextActive = updatedDocs.find((d) => !d.disabled);
+        setSelectedDocId(nextActive ? nextActive.id : '');
+      }
+    }
+  };
+
+  // --- 관리자: 필사문 완전 삭제 ---
+  const handleDeleteDoc = (id: string) => {
+    const targetDoc = documents.find((d) => d.id === id);
+    if (!targetDoc) return;
+
+    if (confirm(`'${targetDoc.title}' 필사문을 완전히 삭제하시겠습니까?\n(이 작업은 복구할 수 없습니다.)`)) {
+      const updatedDocs = documents.filter((doc) => doc.id !== id);
+
+      setDocuments(updatedDocs);
+      localStorage.setItem('transcription_docs', JSON.stringify(updatedDocs));
+
+      if (selectedDocId === id) {
+        const nextActive = updatedDocs.find((d) => !d.disabled);
+        setSelectedDocId(nextActive ? nextActive.id : (updatedDocs[0]?.id || ''));
+      }
+
+      alert('필사문이 삭제되었습니다.');
+    }
   };
 
   // 실시간 연산 지표
@@ -364,6 +427,8 @@ export default function TranscriptionApp() {
 
   // 1. 로그인 화면
   if (viewMode === 'login') {
+    const activeDocuments = documents.filter((d) => !d.disabled);
+
     return (
       <main className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
         <div className="max-w-md w-full space-y-6">
@@ -387,22 +452,29 @@ export default function TranscriptionApp() {
 
               <div>
                 <label className="text-xs font-semibold text-slate-600 mb-1 block">필사문 제목 선택</label>
-                <select
-                  value={selectedDocId}
-                  onChange={(e) => setSelectedDocId(e.target.value)}
-                  className="w-full p-3 border border-slate-300 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-800 font-medium"
-                >
-                  {documents.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.title} ({d.sentences.length}줄)
-                    </option>
-                  ))}
-                </select>
+                {activeDocuments.length > 0 ? (
+                  <select
+                    value={selectedDocId}
+                    onChange={(e) => setSelectedDocId(e.target.value)}
+                    className="w-full p-3 border border-slate-300 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-800 font-medium"
+                  >
+                    {activeDocuments.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.title} ({d.sentences.length}줄)
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="p-3 border border-amber-200 bg-amber-50 rounded-xl text-xs text-amber-800">
+                    현재 이용 가능한 필사문이 없습니다. (관리자에게 문의하세요)
+                  </div>
+                )}
               </div>
 
               <button
                 type="submit"
-                className="w-full bg-emerald-600 text-white font-medium py-3 rounded-xl hover:bg-emerald-700 transition-colors text-sm"
+                disabled={activeDocuments.length === 0}
+                className="w-full bg-emerald-600 text-white font-medium py-3 rounded-xl hover:bg-emerald-700 transition-colors text-sm disabled:opacity-50"
               >
                 필사 시작하기
               </button>
@@ -561,13 +633,43 @@ export default function TranscriptionApp() {
               </div>
             )}
 
+            {/* 등록된 필사문 목록 및 제어 (사용중지/삭제) */}
             <div className="pt-4 border-t border-slate-100">
               <h3 className="text-xs font-semibold text-slate-500 mb-2">등록된 필사문 목록 ({documents.length})</h3>
-              <ul className="divide-y divide-slate-100 border border-slate-100 rounded-xl overflow-hidden">
+              <ul className="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden">
                 {documents.map((doc) => (
-                  <li key={doc.id} className="p-3 text-sm text-slate-700 flex justify-between bg-slate-50">
-                    <span className="font-medium">{doc.title}</span>
-                    <span className="text-xs text-slate-400">{doc.sentences.length}개 줄</span>
+                  <li key={doc.id} className="p-3.5 text-sm text-slate-700 flex justify-between items-center bg-slate-50 hover:bg-slate-100/60 transition-colors">
+                    <div className="flex items-center gap-2">
+                      <span className={`font-medium ${doc.disabled ? 'line-through text-slate-400' : 'text-slate-800'}`}>
+                        {doc.title}
+                      </span>
+                      <span className="text-xs text-slate-400">({doc.sentences.length}개 줄)</span>
+                      {doc.disabled && (
+                        <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-semibold">
+                          사용중지됨
+                        </span>
+                      )}
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleToggleDisableDoc(doc.id)}
+                        className={`text-xs px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
+                          doc.disabled
+                            ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                            : 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                        }`}
+                      >
+                        {doc.disabled ? '사용재개' : '사용중지'}
+                      </button>
+
+                      <button
+                        onClick={() => handleDeleteDoc(doc.id)}
+                        className="text-xs bg-rose-100 text-rose-700 hover:bg-rose-200 px-2.5 py-1.5 rounded-lg font-medium transition-colors"
+                      >
+                        삭제
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>
