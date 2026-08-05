@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 
-// API 버전 4.10.38과 일치하도록 Worker 경로 지정 (.mjs 확장자 적용)
+// API 버전 4.10.38과 일치하도록 Worker 경로 지정
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs`;
 
 interface DocumentData {
@@ -83,7 +83,7 @@ export default function TranscriptionApp() {
   const currentDoc = documents.find((d) => d.id === selectedDocId);
   const currentSentence = currentDoc?.sentences[currentIndex] || '';
 
-  // 문장 인덱스 변경 시 해당 줄 텍스트 동기화
+  // 문장 인덱스 변경 시 해당 텍스트 동기화
   useEffect(() => {
     if (viewMode === 'user') {
       setInput(sentenceDrafts[currentIndex] || '');
@@ -145,7 +145,7 @@ export default function TranscriptionApp() {
     localStorage.setItem('transcription_progress', JSON.stringify(newProgressMap));
   };
 
-  // 1. 이전 줄 버튼
+  // 1. 이전 문장 버튼
   const handlePrevSentence = () => {
     if (currentIndex > 0) {
       const prevIdx = currentIndex - 1;
@@ -157,7 +157,7 @@ export default function TranscriptionApp() {
     }
   };
 
-  // 2. 다음 줄 버튼
+  // 2. 다음 문장 버튼
   const handleNextSentence = () => {
     if (!currentDoc) return;
     const totalSentences = currentDoc.sentences.length;
@@ -171,7 +171,7 @@ export default function TranscriptionApp() {
       setCurrentIndex(nextIdx);
     } else {
       saveUserProgress(currentIndex, updatedDrafts);
-      alert('마지막 줄입니다.');
+      alert('마지막 문장입니다.');
     }
   };
 
@@ -187,7 +187,7 @@ export default function TranscriptionApp() {
     const newCompleted = Math.max(currentCompleted, currentIndex + 1);
 
     saveUserProgress(currentIndex, updatedDrafts, newCompleted);
-    alert(`현재 줄 및 진행 상황이 저장되었습니다! (${newCompleted}/${totalSentences} 줄 완주)`);
+    alert(`현재 문장 및 진행 상황이 저장되었습니다! (${newCompleted}/${totalSentences} 문장 완주)`);
   };
 
   const handleUserLogin = (e: React.FormEvent) => {
@@ -225,42 +225,51 @@ export default function TranscriptionApp() {
     }
   };
 
-  // PDF 파싱: 마침표가 아닌 한 줄(줄바꿈 \n) 단위로 분할 (버전 4.10.38 기준 적용)
+  // 다양한 확장자(PDF, TXT, MD, CSV, JSON, TSV, LOG 등) 불러오기 및 파싱
   const handleLoadFromDataDir = async () => {
-    if (!dataFileName.trim()) return alert('파일명(예: sample1.pdf)을 입력해 주세요.');
+    const fileName = dataFileName.trim();
+    if (!fileName) return alert('파일명(예: sample1.pdf, sample1.txt, sample1.md 등)을 입력해 주세요.');
 
-    const filePath = `/data/${dataFileName.trim()}`;
-    setExtractedTitle(dataFileName.replace('.pdf', ''));
+    const filePath = `/data/${fileName}`;
+    // 확장자 종류와 관계없이 파일명에서 마지막 확장자만 제거하여 제목 추출
+    const cleanTitle = fileName.replace(/\.[^/.]+$/, '');
+    setExtractedTitle(cleanTitle);
     setSections([]);
 
     try {
       const response = await fetch(filePath);
       if (!response.ok) {
-        return alert(`public/data/${dataFileName} 파일을 서버에서 찾을 수 없습니다. (상태 코드: ${response.status})`);
+        return alert(`public/data/${fileName} 파일을 서버에서 찾을 수 없습니다. (상태 코드: ${response.status})`);
       }
 
-      const arrayBuffer = await response.arrayBuffer();
-
-      // 버전 4.10.38 CDN 경로 맞춤 설정
-      const loadingTask = pdfjsLib.getDocument({
-        data: arrayBuffer,
-        cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/cmaps/',
-        cMapPacked: true,
-        standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/standard_fonts/',
-      });
-
-      const pdf = await loadingTask.promise;
       let fullText = '';
+      const isPdf = fileName.toLowerCase().endsWith('.pdf');
 
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const tokenProps = await page.getTextContent();
-        const pageText = tokenProps.items.map((item: any) => item.str).join(' ');
-        fullText += pageText + '\n';
+      if (isPdf) {
+        // PDF 파일 파싱
+        const arrayBuffer = await response.arrayBuffer();
+        const loadingTask = pdfjsLib.getDocument({
+          data: arrayBuffer,
+          cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/cmaps/',
+          cMapPacked: true,
+          standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/standard_fonts/',
+        });
+
+        const pdf = await loadingTask.promise;
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const tokenProps = await page.getTextContent();
+          const pageText = tokenProps.items.map((item: any) => item.str).join(' ');
+          fullText += pageText + '\n';
+        }
+      } else {
+        // TXT, MD, CSV, JSON, TSV, LOG 등 텍스트 기반 일반 문서 파싱
+        fullText = await response.text();
       }
 
+      // 문장 종결부호(. ! ?) 및 줄바꿈(엔터) 기준으로 문장 분할
       const rawSentences = fullText
-        .split(/\r?\n/)
+        .split(/(?<=[.!?])\s+|\r?\n/)
         .map((s) => s.trim())
         .filter((s) => s.length > 0);
 
@@ -270,11 +279,11 @@ export default function TranscriptionApp() {
         );
         setIsReviewing(true);
       } else {
-        alert('PDF 내부에 추출 가능한 텍스트가 없습니다.');
+        alert('파일 내부에 추출 가능한 텍스트가 없습니다.');
       }
     } catch (error: any) {
-      console.error('PDF parsing detail error:', error);
-      alert(`PDF 파싱 오류 상세 내용:\n${error?.message || error || '알 수 없는 오류'}`);
+      console.error('File parsing detail error:', error);
+      alert(`파일 파싱 오류 상세 내용:\n${error?.message || error || '알 수 없는 오류'}`);
     }
   };
 
@@ -294,7 +303,7 @@ export default function TranscriptionApp() {
       .map((item) => item.text.trim());
 
     if (selectedTexts.length === 0) {
-      return alert('구역으로 등록할 줄을 하나 이상 선택해 주세요.');
+      return alert('구역으로 등록할 문장을 하나 이상 선택해 주세요.');
     }
 
     const name = sectionName.trim() || `구역 ${sections.length + 1}`;
@@ -311,7 +320,7 @@ export default function TranscriptionApp() {
       prev.map((item) => (item.selected ? { ...item, selected: false } : item))
     );
 
-    alert(`'${name}' 구역(${selectedTexts.length}개 줄)이 추가되었습니다.`);
+    alert(`'${name}' 구역(${selectedTexts.length}개 문장)이 추가되었습니다.`);
   };
 
   const handleRemoveSection = (id: string) => {
@@ -342,7 +351,7 @@ export default function TranscriptionApp() {
     setIsReviewing(false);
     setSections([]);
     setExtractedTitle('');
-    alert(`필사문 '${newDoc.title}'이(가) 성공적으로 등록되었습니다! (총 ${mergedSentences.length}개 줄)`);
+    alert(`필사문 '${newDoc.title}'이(가) 성공적으로 등록되었습니다! (총 ${mergedSentences.length}개 문장)`);
   };
 
   const handleToggleDisableDoc = (id: string) => {
@@ -458,7 +467,7 @@ export default function TranscriptionApp() {
                   >
                     {activeDocuments.map((d) => (
                       <option key={d.id} value={d.id}>
-                        {d.title} ({d.sentences.length}줄)
+                        {d.title} ({d.sentences.length}문장)
                       </option>
                     ))}
                   </select>
@@ -526,12 +535,12 @@ export default function TranscriptionApp() {
             {!isReviewing ? (
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                 <span className="text-xs font-semibold text-slate-600 block">
-                  transcription-app/public/data/ 경로의 PDF 파일명 입력:
+                  transcription-app/public/data/ 경로의 파일명 입력 (PDF, TXT, MD, CSV 등 모든 파일 지원):
                 </span>
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    placeholder="예: sample1.pdf"
+                    placeholder="예: sample1.pdf, sample1.txt, sample1.md 등"
                     value={dataFileName}
                     onChange={(e) => setDataFileName(e.target.value)}
                     className="flex-1 p-2.5 text-sm border border-slate-300 rounded-lg font-mono"
@@ -547,7 +556,7 @@ export default function TranscriptionApp() {
             ) : (
               <div className="space-y-6 border-t border-slate-100 pt-4">
                 <div className="flex justify-between items-center">
-                  <h3 className="text-sm font-bold text-emerald-600">PDF 영역 분할 및 제목 지정</h3>
+                  <h3 className="text-sm font-bold text-emerald-600">영역 분할 및 제목 지정</h3>
                   <button onClick={() => setIsReviewing(false)} className="text-xs text-slate-400 underline">
                     취소
                   </button>
@@ -572,7 +581,7 @@ export default function TranscriptionApp() {
                     <div className="space-y-1">
                       {sections.map((sec) => (
                         <div key={sec.id} className="flex justify-between items-center text-xs bg-white p-2 rounded border border-emerald-100">
-                          <span className="font-semibold text-slate-700">{sec.name} ({sec.sentences.length}개 줄)</span>
+                          <span className="font-semibold text-slate-700">{sec.name} ({sec.sentences.length}개 문장)</span>
                           <button onClick={() => handleRemoveSection(sec.id)} className="text-red-500 hover:underline">삭제</button>
                         </div>
                       ))}
@@ -593,14 +602,14 @@ export default function TranscriptionApp() {
                       onClick={handleAddSection}
                       className="bg-slate-800 text-white text-xs px-4 py-2 rounded-lg font-medium hover:bg-slate-700"
                     >
-                      선택한 줄 구역 추가
+                      선택한 문장 구역 추가
                     </button>
                   </div>
                 </div>
 
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
-                    <span className="text-xs text-slate-500 font-semibold">PDF에서 추출된 줄 목록 ({allParsedSentences.length})</span>
+                    <span className="text-xs text-slate-500 font-semibold">파일에서 추출된 문장 목록 ({allParsedSentences.length})</span>
                     <div className="flex gap-2 text-xs">
                       <button onClick={() => toggleAllSelection(true)} className="text-slate-600 underline">전체 선택</button>
                       <button onClick={() => toggleAllSelection(false)} className="text-slate-600 underline">전체 해제</button>
@@ -640,7 +649,7 @@ export default function TranscriptionApp() {
                       <span className={`font-medium ${doc.disabled ? 'line-through text-slate-400' : 'text-slate-800'}`}>
                         {doc.title}
                       </span>
-                      <span className="text-xs text-slate-400">({doc.sentences.length}개 줄)</span>
+                      <span className="text-xs text-slate-400">({doc.sentences.length}개 문장)</span>
                       {doc.disabled && (
                         <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-semibold">
                           사용중지됨
@@ -684,7 +693,7 @@ export default function TranscriptionApp() {
                     <tr>
                       <th className="p-3">사용자명</th>
                       <th className="p-3">필사문 제목</th>
-                      <th className="p-3">완주 줄 수</th>
+                      <th className="p-3">완주 문장 수</th>
                       <th className="p-3">최근 학습 일시</th>
                     </tr>
                   </thead>
@@ -768,7 +777,7 @@ export default function TranscriptionApp() {
 
           <div className="flex justify-between items-center text-xs text-slate-500 border-t border-slate-200/40 pt-2">
             <span>
-              현재 위치: <strong className="text-slate-800 font-semibold">{currentIndex + 1}</strong> / {totalSentences} 줄
+              현재 위치: <strong className="text-slate-800 font-semibold">{currentIndex + 1}</strong> / {totalSentences} 문장
             </span>
           </div>
         </div>
@@ -776,8 +785,8 @@ export default function TranscriptionApp() {
         {/* 필사 입력 및 제어 영역 */}
         <div className="space-y-4">
           <div className="flex justify-between items-center text-xs text-slate-400 font-medium">
-            <span>줄 {currentIndex + 1} / {totalSentences}</span>
-            <span>현재 줄 작성률: <strong className="text-emerald-600">{Math.min(100, Math.round((input.length / (currentSentence.length || 1)) * 100))}%</strong></span>
+            <span>문장 {currentIndex + 1} / {totalSentences}</span>
+            <span>현재 문장 작성률: <strong className="text-emerald-600">{Math.min(100, Math.round((input.length / (currentSentence.length || 1)) * 100))}%</strong></span>
           </div>
 
           <div className="p-5 bg-slate-50 rounded-xl text-slate-700 font-serif text-lg leading-relaxed border border-slate-200/60 select-none min-h-[100px]">
@@ -797,7 +806,7 @@ export default function TranscriptionApp() {
           <textarea
             value={input}
             onChange={(e) => handleInputChange(e.target.value)}
-            placeholder="위 줄을 똑같이 입력해 주세요..."
+            placeholder="위 문장을 똑같이 입력해 주세요..."
             rows={3}
             className="w-full p-4 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-800 font-serif text-lg text-slate-800 resize-none"
           />
@@ -809,7 +818,7 @@ export default function TranscriptionApp() {
               disabled={currentIndex === 0}
               className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-30"
             >
-              ◀ 이전 줄
+              ◀ 이전 문장
             </button>
 
             <div className="flex gap-2">
@@ -818,7 +827,7 @@ export default function TranscriptionApp() {
                 disabled={currentIndex === totalSentences - 1}
                 className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors disabled:opacity-30"
               >
-                다음 줄 ▶
+                다음 문장 ▶
               </button>
 
               <button
