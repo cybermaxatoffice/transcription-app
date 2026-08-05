@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 
-// API 버전 4.10.38과 일치하도록 Worker 경로 지정
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs`;
 
 interface DocumentData {
@@ -18,7 +17,11 @@ interface UserProgress {
   currentIndex: number;
   completedCount: number;
   sentenceDrafts: Record<number, string>;
+  startDate: string;
+  endDate?: string;
   lastUpdated: string;
+  version: number; // 1 -> v1.0, 2 -> v2.0
+  isCompleted?: boolean;
 }
 
 interface SectionItem {
@@ -38,6 +41,20 @@ export default function TranscriptionApp() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [input, setInput] = useState('');
   const [sentenceDrafts, setSentenceDrafts] = useState<Record<number, string>>({});
+  const [currentVersion, setCurrentVersion] = useState<number>(1);
+  const [startDate, setStartDate] = useState<string>('');
+
+  // 완주 모달 팝업 상태
+  const [showCongratsModal, setShowCongratsModal] = useState(false);
+  const [congratsData, setCongratsData] = useState<{
+    startDate: string;
+    endDate: string;
+    completionRate: number;
+    errorRate: number;
+  } | null>(null);
+
+  // 사용자 이력 조회 모달 팝업 상태
+  const [showUserHistoryModal, setShowUserHistoryModal] = useState(false);
 
   // 관리자 전용
   const [dataFileName, setDataFileName] = useState('sample1.pdf');
@@ -47,7 +64,7 @@ export default function TranscriptionApp() {
   const [sectionName, setSectionName] = useState('');
   const [isReviewing, setIsReviewing] = useState(false);
 
-  // 진행 상태 맵
+  // 진행 상태 맵 (버전별 독립 키 사용: [user][docId_v1.0])
   const [userProgressMap, setUserProgressMap] = useState<Record<string, Record<string, UserProgress>>>({});
 
   // 초기 로드
@@ -83,6 +100,26 @@ export default function TranscriptionApp() {
   const currentDoc = documents.find((d) => d.id === selectedDocId);
   const currentSentence = currentDoc?.sentences[currentIndex] || '';
 
+  // 버전별 고유 저장 키 생성 함수 (예: default-1_v1.0)
+  const getProgressKey = (docId: string, ver: number) => `${docId}_v${ver}.0`;
+
+  // 특정 문서의 가장 최근 진행 기록 찾기
+  const getLatestUserProgress = (trimmedUser: string, docId: string) => {
+    const userMap = userProgressMap[trimmedUser];
+    if (!userMap) return null;
+
+    const matchingKeys = Object.keys(userMap).filter((k) => k.startsWith(`${docId}_v`));
+    if (matchingKeys.length === 0) return null;
+
+    matchingKeys.sort((a, b) => {
+      const vA = userMap[a].version || 1;
+      const vB = userMap[b].version || 1;
+      return vB - vA;
+    });
+
+    return userMap[matchingKeys[0]];
+  };
+
   // 문장 인덱스 변경 시 해당 텍스트 동기화
   useEffect(() => {
     if (viewMode === 'user') {
@@ -104,6 +141,8 @@ export default function TranscriptionApp() {
     setAdminPassword('');
     setInput('');
     setSentenceDrafts({});
+    setShowCongratsModal(false);
+    setShowUserHistoryModal(false);
     
     const activeDocs = documents.filter((d) => !d.disabled);
     if (activeDocs.length > 0) {
@@ -117,28 +156,45 @@ export default function TranscriptionApp() {
   const saveUserProgress = (
     targetIndex: number,
     updatedDrafts: Record<number, string>,
-    completedCountOverride?: number
+    completedCountOverride?: number,
+    verOverride?: number,
+    startOverride?: string,
+    endDateOverride?: string
   ) => {
     if (!userName || !selectedDocId) return;
 
     const trimmedUser = userName.trim();
-    const newProgressMap = { ...userProgressMap };
+    const ver = verOverride || currentVersion || 1;
+    const storageKey = getProgressKey(selectedDocId, ver);
 
+    const newProgressMap = { ...userProgressMap };
     if (!newProgressMap[trimmedUser]) {
       newProgressMap[trimmedUser] = {};
     }
 
-    const prevCount = newProgressMap[trimmedUser][selectedDocId]?.completedCount || 0;
+    const prevProg = newProgressMap[trimmedUser][storageKey];
+    const prevCount = prevProg?.completedCount || 0;
     const newCompletedCount = completedCountOverride !== undefined 
       ? completedCountOverride 
       : prevCount;
 
-    newProgressMap[trimmedUser][selectedDocId] = {
+    const totalSentences = currentDoc?.sentences.length || 0;
+    const isComp = totalSentences > 0 && newCompletedCount >= totalSentences;
+
+    const nowStr = new Date().toLocaleString('ko-KR');
+    const startStr = startOverride || startDate || prevProg?.startDate || nowStr;
+    const endStr = endDateOverride || (isComp ? (prevProg?.endDate || nowStr) : undefined);
+
+    newProgressMap[trimmedUser][storageKey] = {
       docId: selectedDocId,
       currentIndex: targetIndex,
       completedCount: newCompletedCount,
       sentenceDrafts: updatedDrafts,
-      lastUpdated: new Date().toLocaleString('ko-KR')
+      startDate: startStr,
+      endDate: endStr,
+      lastUpdated: nowStr,
+      version: ver,
+      isCompleted: isComp
     };
 
     setUserProgressMap(newProgressMap);
@@ -183,16 +239,33 @@ export default function TranscriptionApp() {
     const updatedDrafts = { ...sentenceDrafts, [currentIndex]: input };
     setSentenceDrafts(updatedDrafts);
 
-    const currentCompleted = userProgressMap[userName.trim()]?.[selectedDocId]?.completedCount || 0;
+    const storageKey = getProgressKey(selectedDocId, currentVersion);
+    const currentCompleted = userProgressMap[userName.trim()]?.[storageKey]?.completedCount || 0;
     const newCompleted = Math.max(currentCompleted, currentIndex + 1);
 
-    saveUserProgress(currentIndex, updatedDrafts, newCompleted);
-    alert(`현재 문장 및 진행 상황이 저장되었습니다! (${newCompleted}/${totalSentences} 문장 완주)`);
+    const nowStr = new Date().toLocaleString('ko-KR');
+
+    if (newCompleted >= totalSentences) {
+      saveUserProgress(currentIndex, updatedDrafts, newCompleted, undefined, undefined, nowStr);
+      const finalStats = calculateStats();
+      setCongratsData({
+        startDate: startDate || nowStr,
+        endDate: nowStr,
+        completionRate: finalStats.completionRate,
+        errorRate: finalStats.errorRate
+      });
+      setShowCongratsModal(true);
+    } else {
+      saveUserProgress(currentIndex, updatedDrafts, newCompleted);
+      alert(`현재 문장 및 진행 상황이 저장되었습니다! (${newCompleted}/${totalSentences} 문장 완주)`);
+    }
   };
 
+  // 필사 시작하기 (v1.0, v2.0 버전별 독립 이력 관리)
   const handleUserLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userName.trim()) return alert('사용자 이름을 입력해 주세요.');
+    const trimmedUser = userName.trim();
+    if (!trimmedUser) return alert('사용자 이름을 입력해 주세요.');
     if (!selectedDocId) return alert('필사할 필사문 제목을 선택해 주세요.');
 
     const targetDoc = documents.find((d) => d.id === selectedDocId);
@@ -200,19 +273,63 @@ export default function TranscriptionApp() {
       return alert('현재 사용이 중지된 필사문입니다. 다른 필사문을 선택해 주세요.');
     }
 
-    setViewMode('user');
+    const latestProgress = getLatestUserProgress(trimmedUser, selectedDocId);
+    const totalSentences = targetDoc?.sentences.length || 0;
 
-    const existingProgress = userProgressMap[userName.trim()]?.[selectedDocId];
-    if (existingProgress) {
-      const savedIdx = existingProgress.currentIndex;
-      const drafts = existingProgress.sentenceDrafts || {};
+    // 완주 문서 재시작 문의 (v1.0 -> v2.0 독립 키 생성)
+    if (latestProgress && latestProgress.completedCount >= totalSentences && totalSentences > 0) {
+      const currentVerNum = latestProgress.version || 1;
+      const nextVerNum = currentVerNum + 1;
+
+      if (confirm(`이미 완주한 필사문입니다.\n[v${nextVerNum}.0] 버전으로 새로 필사를 시작하시겠습니까?`)) {
+        const nowStr = new Date().toLocaleString('ko-KR');
+        const nextStorageKey = getProgressKey(selectedDocId, nextVerNum);
+
+        setCurrentVersion(nextVerNum);
+        setStartDate(nowStr);
+        setCurrentIndex(0);
+        setSentenceDrafts({});
+        setInput('');
+
+        const newProgressMap = { ...userProgressMap };
+        if (!newProgressMap[trimmedUser]) newProgressMap[trimmedUser] = {};
+        
+        newProgressMap[trimmedUser][nextStorageKey] = {
+          docId: selectedDocId,
+          currentIndex: 0,
+          completedCount: 0,
+          sentenceDrafts: {},
+          startDate: nowStr,
+          lastUpdated: nowStr,
+          version: nextVerNum,
+          isCompleted: false
+        };
+
+        setUserProgressMap(newProgressMap);
+        localStorage.setItem('transcription_progress', JSON.stringify(newProgressMap));
+        setViewMode('user');
+        return;
+      }
+    }
+
+    // 이어서하기 또는 신규 시작
+    setViewMode('user');
+    if (latestProgress) {
+      const savedIdx = latestProgress.currentIndex;
+      const drafts = latestProgress.sentenceDrafts || {};
       setSentenceDrafts(drafts);
       setCurrentIndex(savedIdx);
       setInput(drafts[savedIdx] || '');
+      setCurrentVersion(latestProgress.version || 1);
+      setStartDate(latestProgress.startDate || new Date().toLocaleString('ko-KR'));
     } else {
+      const nowStr = new Date().toLocaleString('ko-KR');
       setCurrentIndex(0);
       setSentenceDrafts({});
       setInput('');
+      setCurrentVersion(1);
+      setStartDate(nowStr);
+      saveUserProgress(0, {}, 0, 1, nowStr);
     }
   };
 
@@ -225,13 +342,33 @@ export default function TranscriptionApp() {
     }
   };
 
-  // 다양한 확장자(PDF, TXT, MD, CSV, JSON, TSV, LOG 등) 불러오기 및 파싱
+  // 관리자: 개별 이력 키 단위 삭제 기능
+  const handleDeleteUserProgress = (targetUserName: string, progressKey: string) => {
+    const pData = userProgressMap[targetUserName]?.[progressKey];
+    const targetDoc = documents.find((d) => d.id === pData?.docId);
+    const docTitle = targetDoc?.title || progressKey;
+    const verText = `v${pData?.version || 1}.0`;
+
+    if (confirm(`[${targetUserName}] 님의 '${docTitle} (${verText})' 이력을 삭제하시겠습니까?`)) {
+      const newProgressMap = { ...userProgressMap };
+      if (newProgressMap[targetUserName]) {
+        delete newProgressMap[targetUserName][progressKey];
+        if (Object.keys(newProgressMap[targetUserName]).length === 0) {
+          delete newProgressMap[targetUserName];
+        }
+      }
+      setUserProgressMap(newProgressMap);
+      localStorage.setItem('transcription_progress', JSON.stringify(newProgressMap));
+      alert('필사 이력이 성공적으로 삭제되었습니다.');
+    }
+  };
+
+  // 파싱 기능
   const handleLoadFromDataDir = async () => {
     const fileName = dataFileName.trim();
-    if (!fileName) return alert('파일명(예: sample1.pdf, sample1.txt, sample1.md 등)을 입력해 주세요.');
+    if (!fileName) return alert('파일명(예: sample1.pdf, sample1.txt 등)을 입력해 주세요.');
 
     const filePath = `/data/${fileName}`;
-    // 확장자 종류와 관계없이 파일명에서 마지막 확장자만 제거하여 제목 추출
     const cleanTitle = fileName.replace(/\.[^/.]+$/, '');
     setExtractedTitle(cleanTitle);
     setSections([]);
@@ -246,7 +383,6 @@ export default function TranscriptionApp() {
       const isPdf = fileName.toLowerCase().endsWith('.pdf');
 
       if (isPdf) {
-        // PDF 파일 파싱
         const arrayBuffer = await response.arrayBuffer();
         const loadingTask = pdfjsLib.getDocument({
           data: arrayBuffer,
@@ -263,11 +399,9 @@ export default function TranscriptionApp() {
           fullText += pageText + '\n';
         }
       } else {
-        // TXT, MD, CSV, JSON, TSV, LOG 등 텍스트 기반 일반 문서 파싱
         fullText = await response.text();
       }
 
-      // 문장 종결부호(. ! ?) 및 줄바꿈(엔터) 기준으로 문장 분할
       const rawSentences = fullText
         .split(/(?<=[.!?])\s+|\r?\n/)
         .map((s) => s.trim())
@@ -395,19 +529,25 @@ export default function TranscriptionApp() {
     }
   };
 
-  const calculateStats = () => {
-    if (!currentDoc || currentDoc.sentences.length === 0) {
+  // 통계 연산
+  const calculateStats = (targetDocData?: DocumentData, targetDrafts?: Record<number, string>, targetCurrIdx?: number, targetInputVal?: string) => {
+    const docObj = targetDocData || currentDoc;
+    if (!docObj || docObj.sentences.length === 0) {
       return { completionRate: 0, errorRate: 0, totalOriginalChars: 0, totalTypedChars: 0 };
     }
+
+    const drafts = targetDrafts || sentenceDrafts;
+    const cIdx = targetCurrIdx !== undefined ? targetCurrIdx : currentIndex;
+    const currInput = targetInputVal !== undefined ? targetInputVal : input;
 
     let totalOriginalChars = 0;
     let totalTypedChars = 0;
     let totalErrorChars = 0;
 
-    currentDoc.sentences.forEach((origSentence, idx) => {
+    docObj.sentences.forEach((origSentence, idx) => {
       totalOriginalChars += origSentence.length;
 
-      const typed = idx === currentIndex ? input : (sentenceDrafts[idx] || '');
+      const typed = idx === cIdx ? currInput : (drafts[idx] || '');
       totalTypedChars += typed.length;
 
       for (let i = 0; i < typed.length; i++) {
@@ -465,11 +605,16 @@ export default function TranscriptionApp() {
                     onChange={(e) => setSelectedDocId(e.target.value)}
                     className="w-full p-3 border border-slate-300 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-800 font-medium"
                   >
-                    {activeDocuments.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.title} ({d.sentences.length}문장)
-                      </option>
-                    ))}
+                    {activeDocuments.map((d) => {
+                      const latestProg = getLatestUserProgress(userName.trim(), d.id);
+                      const verNum = latestProg?.version || 1;
+                      const verText = `(v${verNum}.0)`;
+                      return (
+                        <option key={d.id} value={d.id}>
+                          {d.title} {verText} ({d.sentences.length}문장)
+                        </option>
+                      );
+                    })}
                   </select>
                 ) : (
                   <div className="p-3 border border-amber-200 bg-amber-50 rounded-xl text-xs text-amber-800">
@@ -535,12 +680,12 @@ export default function TranscriptionApp() {
             {!isReviewing ? (
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                 <span className="text-xs font-semibold text-slate-600 block">
-                  transcription-app/public/data/ 경로의 파일명 입력 (PDF, TXT, MD, CSV 등 모든 파일 지원):
+                  transcription-app/public/data/ 경로의 파일명 입력 (PDF, TXT, MD, CSV 등 지원):
                 </span>
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    placeholder="예: sample1.pdf, sample1.txt, sample1.md 등"
+                    placeholder="예: sample1.pdf, sample1.txt 등"
                     value={dataFileName}
                     onChange={(e) => setDataFileName(e.target.value)}
                     className="flex-1 p-2.5 text-sm border border-slate-300 rounded-lg font-mono"
@@ -682,34 +827,69 @@ export default function TranscriptionApp() {
             </div>
           </div>
 
+          {/* 관리자: 버전별 독립 이력 조회 및 삭제 대시보드 */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <h2 className="text-lg font-bold text-slate-800 mb-4">사용자별 필사 진행 현황</h2>
+            <h2 className="text-lg font-bold text-slate-800 mb-4">전체 사용자 필사 이력 대시보드</h2>
             {Object.keys(userProgressMap).length === 0 ? (
-              <p className="text-sm text-slate-400">학습 기록이 아직 없습니다.</p>
+              <p className="text-sm text-slate-400">학습 이력이 아직 없습니다.</p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm text-slate-600">
-                  <thead className="bg-slate-100 text-xs text-slate-500 uppercase">
+                <table className="w-full text-left text-xs text-slate-600">
+                  <thead className="bg-slate-100 text-slate-500 uppercase">
                     <tr>
-                      <th className="p-3">사용자명</th>
-                      <th className="p-3">필사문 제목</th>
-                      <th className="p-3">완주 문장 수</th>
-                      <th className="p-3">최근 학습 일시</th>
+                      <th className="p-3">누가 (사용자)</th>
+                      <th className="p-3">필사명(버전)</th>
+                      <th className="p-3">시작일</th>
+                      <th className="p-3">종료일</th>
+                      <th className="p-3">진행현황</th>
+                      <th className="p-3">오타율</th>
+                      <th className="p-3 text-center">관리</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {Object.entries(userProgressMap).flatMap(([uName, userDocs]) =>
-                      Object.entries(userDocs).map(([dId, pData]) => {
-                        const targetDoc = documents.find((d) => d.id === dId);
+                    {Object.entries(userProgressMap).flatMap(([uName, userProgresses]) =>
+                      Object.entries(userProgresses).map(([progKey, pData]) => {
+                        const targetDoc = documents.find((d) => d.id === pData.docId);
                         const total = targetDoc?.sentences.length || 0;
+                        const verStr = `v${pData.version || 1}.0`;
+                        
+                        const calc = calculateStats(targetDoc, pData.sentenceDrafts, pData.currentIndex, '');
+                        const isDone = pData.isCompleted || (total > 0 && pData.completedCount >= total);
+
                         return (
-                          <tr key={`${uName}-${dId}`} className="hover:bg-slate-50">
+                          <tr key={`${uName}-${progKey}`} className="hover:bg-slate-50">
                             <td className="p-3 font-semibold text-slate-800">{uName}</td>
-                            <td className="p-3">{targetDoc?.title || dId}</td>
-                            <td className="p-3">
-                              <span className="text-emerald-600 font-bold">{pData.completedCount}</span> / {total}
+                            <td className="p-3 font-medium text-slate-700">
+                              {targetDoc?.title || pData.docId} <span className="text-emerald-600 font-bold">({verStr})</span>
                             </td>
-                            <td className="p-3 text-xs text-slate-400">{pData.lastUpdated}</td>
+                            <td className="p-3 text-slate-500">{pData.startDate || '-'}</td>
+                            <td className="p-3 text-slate-500">
+                              {isDone ? (pData.endDate || pData.lastUpdated) : ''}
+                            </td>
+                            <td className="p-3">
+                              {isDone ? (
+                                <span className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded font-bold">
+                                  완주 ({pData.completedCount}/{total})
+                                </span>
+                              ) : (
+                                <span>
+                                  진행 중 (<strong className="text-emerald-600">{pData.completedCount}</strong>/{total})
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-3 font-semibold">
+                              <span className={calc.errorRate > 0 ? 'text-rose-500' : 'text-slate-700'}>
+                                {calc.errorRate}%
+                              </span>
+                            </td>
+                            <td className="p-3 text-center">
+                              <button
+                                onClick={() => handleDeleteUserProgress(uName, progKey)}
+                                className="bg-rose-100 text-rose-700 hover:bg-rose-200 px-2 py-1 rounded font-medium transition-colors"
+                              >
+                                삭제
+                              </button>
+                            </td>
                           </tr>
                         );
                       })
@@ -726,23 +906,35 @@ export default function TranscriptionApp() {
 
   // 3. 일반 사용자 필사 화면
   const totalSentences = currentDoc?.sentences.length || 0;
+  const verStr = `v${currentVersion}.0`;
+  const displayTitle = `${currentDoc?.title || '필사 연습'} (${verStr})`;
+
+  const currentUserHistory = userProgressMap[userName.trim()] || {};
 
   return (
-    <main className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6">
+    <main className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 relative">
       <div className="max-w-2xl w-full bg-white rounded-2xl shadow-sm border border-slate-200 p-8 space-y-6">
         
         {/* 상단 헤더 영역 */}
         <div className="flex justify-between items-center border-b border-slate-100 pb-4">
           <div>
             <span className="text-xs text-slate-400 font-medium">사용자: {userName}님</span>
-            <h1 className="text-xl font-bold text-slate-800">{currentDoc?.title || '필사 연습'}</h1>
+            <h1 className="text-xl font-bold text-slate-800">{displayTitle}</h1>
           </div>
-          <button
-            onClick={resetAllAndGoToLogin}
-            className="text-xs text-slate-400 hover:text-slate-600 underline"
-          >
-            제목 / 사용자 변경 (초기화)
-          </button>
+          <div className="flex gap-2 items-center">
+            <button
+              onClick={() => setShowUserHistoryModal(true)}
+              className="text-xs bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg font-medium hover:bg-slate-200 transition-colors"
+            >
+              내 필사 이력 📜
+            </button>
+            <button
+              onClick={resetAllAndGoToLogin}
+              className="text-xs text-slate-400 hover:text-slate-600 underline ml-1"
+            >
+              종료 (초기화)
+            </button>
+          </div>
         </div>
 
         {/* 상단 실시간 연산 지표 카드 */}
@@ -779,6 +971,7 @@ export default function TranscriptionApp() {
             <span>
               현재 위치: <strong className="text-slate-800 font-semibold">{currentIndex + 1}</strong> / {totalSentences} 문장
             </span>
+            <span className="text-[11px] text-slate-400">시작일: {startDate || '-'}</span>
           </div>
         </div>
 
@@ -840,6 +1033,127 @@ export default function TranscriptionApp() {
           </div>
         </div>
       </div>
+
+      {/* 사용자 전용: 내 필사 이력 조회 모달 팝업 */}
+      {showUserHistoryModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl border border-slate-100 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <h2 className="text-lg font-bold text-slate-800">📜 {userName}님의 필사 이력</h2>
+              <button
+                onClick={() => setShowUserHistoryModal(false)}
+                className="text-xs text-slate-400 hover:text-slate-600 font-semibold"
+              >
+                닫기 ✕
+              </button>
+            </div>
+
+            {Object.keys(currentUserHistory).length === 0 ? (
+              <p className="text-xs text-slate-400 py-6 text-center">진행 중이거나 완료된 필사 이력이 없습니다.</p>
+            ) : (
+              <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                {Object.entries(currentUserHistory).map(([progKey, pData]) => {
+                  const targetDoc = documents.find((d) => d.id === pData.docId);
+                  const total = targetDoc?.sentences.length || 0;
+                  const vNumStr = `v${pData.version || 1}.0`;
+                  const calc = calculateStats(targetDoc, pData.sentenceDrafts, pData.currentIndex, '');
+                  const isDone = pData.isCompleted || (total > 0 && pData.completedCount >= total);
+
+                  return (
+                    <div key={progKey} className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-bold text-slate-800">
+                          {targetDoc?.title || pData.docId} <span className="text-emerald-600">({vNumStr})</span>
+                        </span>
+                        {isDone ? (
+                          <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold">
+                            완주됨 🎉
+                          </span>
+                        ) : (
+                          <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded font-bold">
+                            진행 중
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs text-slate-500 pt-1 border-t border-slate-200/50">
+                        <div>작성률: <strong className="text-slate-700">{calc.completionRate}%</strong> ({pData.completedCount}/{total} 문장)</div>
+                        <div>오타율: <strong className={calc.errorRate > 0 ? 'text-rose-500' : 'text-slate-700'}>{calc.errorRate}%</strong></div>
+                        <div className="col-span-2 text-[11px] text-slate-400">시작일: {pData.startDate || '-'}</div>
+                        <div className="col-span-2 text-[11px] text-slate-400">종료일: {isDone ? (pData.endDate || pData.lastUpdated) : '- (진행 중)'}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <button
+              onClick={() => setShowUserHistoryModal(false)}
+              className="w-full bg-slate-800 text-white font-medium py-2.5 rounded-xl hover:bg-slate-700 transition-colors text-xs"
+            >
+              닫기
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 완주 축하 모달 팝업 */}
+      {showCongratsModal && congratsData && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border border-slate-100 text-center space-y-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="w-32 h-32 mx-auto rounded-full bg-emerald-50 flex items-center justify-center p-4">
+              <img
+                src="https://images.unsplash.com/photo-1513151233558-d860c5398176?q=80&w=300&auto=format&fit=crop"
+                alt="축하 이미지"
+                className="w-full h-full object-cover rounded-full shadow-inner"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <h2 className="text-2xl font-extrabold text-slate-800">🎉 완주를 축하합니다!</h2>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                정성과 정성을 다해 필사문을 모두 마쳤습니다.<br />
+                스스로의 노력과 끈기에 큰 박수를 보냅니다!
+              </p>
+            </div>
+
+            <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80">
+              <table className="w-full text-xs text-slate-600 text-left">
+                <tbody className="divide-y divide-slate-200/60">
+                  <tr>
+                    <th className="py-2.5 font-semibold text-slate-500">필사문 버전</th>
+                    <td className="py-2.5 text-right font-bold text-emerald-600">{verStr}</td>
+                  </tr>
+                  <tr>
+                    <th className="py-2.5 font-semibold text-slate-500">작성 시작일</th>
+                    <td className="py-2.5 text-right font-medium text-slate-800">{congratsData.startDate}</td>
+                  </tr>
+                  <tr>
+                    <th className="py-2.5 font-semibold text-slate-500">작성 종료일</th>
+                    <td className="py-2.5 text-right font-medium text-slate-800">{congratsData.endDate}</td>
+                  </tr>
+                  <tr>
+                    <th className="py-2.5 font-semibold text-slate-500">최종 작성률</th>
+                    <td className="py-2.5 text-right font-bold text-emerald-600">{congratsData.completionRate}%</td>
+                  </tr>
+                  <tr>
+                    <th className="py-2.5 font-semibold text-slate-500">최종 오타율</th>
+                    <td className="py-2.5 text-right font-bold text-rose-500">{congratsData.errorRate}%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <button
+              onClick={() => setShowCongratsModal(false)}
+              className="w-full bg-slate-900 text-white font-medium py-3 rounded-xl hover:bg-slate-800 transition-colors text-sm shadow-md"
+            >
+              확인 및 결과 닫기
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
