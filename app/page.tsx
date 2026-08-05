@@ -15,7 +15,7 @@ interface UserProgress {
   docId: string;
   currentIndex: number;
   completedCount: number;
-  sentenceDrafts: Record<number, string>; // 문장 인덱스별 입력 내역 캐싱
+  sentenceDrafts: Record<number, string>;
   lastUpdated: string;
 }
 
@@ -37,7 +37,7 @@ export default function TranscriptionApp() {
   const [input, setInput] = useState('');
   const [sentenceDrafts, setSentenceDrafts] = useState<Record<number, string>>({});
 
-  // 관리자 전용: data 디렉토리 파일 읽기 및 추출 상태
+  // 관리자 전용
   const [dataFileName, setDataFileName] = useState('sample1.pdf');
   const [extractedTitle, setExtractedTitle] = useState('');
   const [allParsedSentences, setAllParsedSentences] = useState<{ id: number; text: string; selected: boolean }[]>([]);
@@ -45,10 +45,10 @@ export default function TranscriptionApp() {
   const [sectionName, setSectionName] = useState('');
   const [isReviewing, setIsReviewing] = useState(false);
 
-  // 사람별(userName) -> 문서별(docId) 진행 및 임시 저장 관리 Map
+  // 진행 상태 맵
   const [userProgressMap, setUserProgressMap] = useState<Record<string, Record<string, UserProgress>>>({});
 
-  // 초기 데이터 로드
+  // 초기 로드
   useEffect(() => {
     const loadedDocs = localStorage.getItem('transcription_docs');
     const loadedProgress = localStorage.getItem('transcription_progress');
@@ -76,7 +76,25 @@ export default function TranscriptionApp() {
     }
   }, []);
 
-  // 모든 입력값 및 선택값 초기화 후 로그인 화면 이동
+  const currentDoc = documents.find((d) => d.id === selectedDocId);
+  const currentSentence = currentDoc?.sentences[currentIndex] || '';
+
+  // 문장 인덱스가 바뀔 때마다 캐시된 해당 문장 텍스트 동기화
+  useEffect(() => {
+    if (viewMode === 'user') {
+      setInput(sentenceDrafts[currentIndex] || '');
+    }
+  }, [currentIndex, viewMode]);
+
+  // 입력값 변경 시 내역 캐시 업데이트
+  const handleInputChange = (val: string) => {
+    setInput(val);
+    setSentenceDrafts((prev) => ({
+      ...prev,
+      [currentIndex]: val
+    }));
+  };
+
   const resetAllAndGoToLogin = () => {
     setUserName('');
     setAdminPassword('');
@@ -90,19 +108,6 @@ export default function TranscriptionApp() {
     setViewMode('login');
   };
 
-  const currentDoc = documents.find((d) => d.id === selectedDocId);
-  const currentSentence = currentDoc?.sentences[currentIndex] || '';
-
-  // 현재 문장 입력 시 drafts 캐시 업데이트
-  const handleInputChange = (val: string) => {
-    setInput(val);
-    setSentenceDrafts((prev) => ({
-      ...prev,
-      [currentIndex]: val
-    }));
-  };
-
-  // 진행 상황 저장 함수 (내역 캐싱 포함)
   const saveUserProgress = (
     targetIndex: number,
     updatedDrafts: Record<number, string>,
@@ -134,20 +139,19 @@ export default function TranscriptionApp() {
     localStorage.setItem('transcription_progress', JSON.stringify(newProgressMap));
   };
 
-  // 1. 이전 문장 버튼
+  // 1. 이전 문장 버튼 (정확한 인덱스 감산 및 캐시 반영)
   const handlePrevSentence = () => {
     if (currentIndex > 0) {
-      const nextIdx = currentIndex - 1;
+      const prevIdx = currentIndex - 1;
       const updatedDrafts = { ...sentenceDrafts, [currentIndex]: input };
       setSentenceDrafts(updatedDrafts);
-      saveUserProgress(nextIdx, updatedDrafts);
+      saveUserProgress(prevIdx, updatedDrafts);
 
-      setCurrentIndex(nextIdx);
-      setInput(updatedDrafts[nextIdx] || '');
+      setCurrentIndex(prevIdx);
     }
   };
 
-  // 2. 다음 문장 버튼 (입력 내역 저장 후 다음 문장으로 이동)
+  // 2. 다음 문장 버튼
   const handleNextSentence = () => {
     if (!currentDoc) return;
     const totalSentences = currentDoc.sentences.length;
@@ -159,14 +163,13 @@ export default function TranscriptionApp() {
       const nextIdx = currentIndex + 1;
       saveUserProgress(nextIdx, updatedDrafts);
       setCurrentIndex(nextIdx);
-      setInput(updatedDrafts[nextIdx] || '');
     } else {
       saveUserProgress(currentIndex, updatedDrafts);
       alert('마지막 문장입니다.');
     }
   };
 
-  // 3. 작성 완료 버튼 (현재 문장 저장 및 완성 진행률/오타율 업데이트)
+  // 3. 작성 완료 버튼
   const handleCompleteSentence = () => {
     if (!currentDoc) return;
     const totalSentences = currentDoc.sentences.length;
@@ -190,10 +193,11 @@ export default function TranscriptionApp() {
 
     const existingProgress = userProgressMap[userName.trim()]?.[selectedDocId];
     if (existingProgress) {
-      setCurrentIndex(existingProgress.currentIndex);
+      const savedIdx = existingProgress.currentIndex;
       const drafts = existingProgress.sentenceDrafts || {};
       setSentenceDrafts(drafts);
-      setInput(drafts[existingProgress.currentIndex] || '');
+      setCurrentIndex(savedIdx);
+      setInput(drafts[savedIdx] || '');
     } else {
       setCurrentIndex(0);
       setSentenceDrafts({});
@@ -318,7 +322,7 @@ export default function TranscriptionApp() {
     alert(`필사문 '${newDoc.title}'이(가) 성공적으로 등록되었습니다! (총 ${mergedSentences.length}개 문장)`);
   };
 
-  // ---------------- 계산 로직 (작성률 & 오타율) ----------------
+  // ---------------- 오타율 & 작성률 실시간 계산 (현재 input 최우선 적용) ----------------
   const calculateStats = () => {
     if (!currentDoc || currentDoc.sentences.length === 0) {
       return { completionRate: 0, errorRate: 0, totalOriginalChars: 0, totalTypedChars: 0 };
@@ -330,10 +334,11 @@ export default function TranscriptionApp() {
 
     currentDoc.sentences.forEach((origSentence, idx) => {
       totalOriginalChars += origSentence.length;
-      const typed = sentenceDrafts[idx] || (idx === currentIndex ? input : '');
+
+      // 현재 작성 중인 문장은 최신 input 값을 쓰고, 나머지는 sentenceDrafts 캐시값 참조
+      const typed = idx === currentIndex ? input : (sentenceDrafts[idx] || '');
       totalTypedChars += typed.length;
 
-      // 오타 수 계산 (입력한 글자 중 원문과 일치하지 않거나 길이를 초과한 경우)
       for (let i = 0; i < typed.length; i++) {
         if (i >= origSentence.length || typed[i] !== origSentence[i]) {
           totalErrorChars++;
@@ -631,7 +636,7 @@ export default function TranscriptionApp() {
           </button>
         </div>
 
-        {/* 상단 통합 지표 카드 (전체 작성률 & 오타율 추가) */}
+        {/* 상단 실시간 연산 지표 카드 */}
         <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200/60 space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-white p-3 rounded-xl border border-slate-100 shadow-2xs">
@@ -644,7 +649,7 @@ export default function TranscriptionApp() {
               <span className={`font-bold text-xl ${stats.errorRate > 0 ? 'text-rose-500' : 'text-slate-700'}`}>
                 {stats.errorRate}%
               </span>
-              <span className="text-[10px] text-slate-400 block mt-0.5">(입력 글자 대비 일치 비율)</span>
+              <span className="text-[10px] text-slate-400 block mt-0.5">(실시간 교정 반영)</span>
             </div>
           </div>
 
@@ -697,7 +702,7 @@ export default function TranscriptionApp() {
             className="w-full p-4 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-800 font-serif text-lg text-slate-800 resize-none"
           />
 
-          {/* 변경된 3종 버튼 영역 ([이전 문장] / [다음 문장] / [작성 완료]) */}
+          {/* 제어 버튼 영역 */}
           <div className="flex justify-between items-center pt-2 gap-3">
             <button
               onClick={handlePrevSentence}
