@@ -79,7 +79,7 @@ export default function TranscriptionApp() {
   const currentDoc = documents.find((d) => d.id === selectedDocId);
   const currentSentence = currentDoc?.sentences[currentIndex] || '';
 
-  // 문장 인덱스가 바뀔 때마다 캐시된 해당 문장 텍스트 동기화
+  // 문장 인덱스 변경 시 해당 줄 텍스트 동기화
   useEffect(() => {
     if (viewMode === 'user') {
       setInput(sentenceDrafts[currentIndex] || '');
@@ -139,7 +139,7 @@ export default function TranscriptionApp() {
     localStorage.setItem('transcription_progress', JSON.stringify(newProgressMap));
   };
 
-  // 1. 이전 문장 버튼 (정확한 인덱스 감산 및 캐시 반영)
+  // 1. 이전 문장 버튼
   const handlePrevSentence = () => {
     if (currentIndex > 0) {
       const prevIdx = currentIndex - 1;
@@ -210,10 +210,11 @@ export default function TranscriptionApp() {
     if (adminPassword === 'admin!@#') {
       setViewMode('admin');
     } else {
-      alert('비밀번호가 올바르지 않습니다. (기본: admin!@#)');
+      alert('비밀번호가 올바르지 않습니다.');
     }
   };
 
+  // PDF 파싱: 마침표가 아닌 한 줄(줄바꿈 \n) 단위로 분할
   const handleLoadFromDataDir = async () => {
     if (!dataFileName.trim()) return alert('파일명(예: sample1.pdf)을 입력해 주세요.');
 
@@ -235,13 +236,14 @@ export default function TranscriptionApp() {
         const page = await pdf.getPage(i);
         const tokenProps = await page.getTextContent();
         const pageText = tokenProps.items.map((item: any) => item.str).join(' ');
-        fullText += pageText + ' ';
+        fullText += pageText + '\n'; // 줄바꿈 구분자 유지
       }
 
+      // 한 줄(줄바꿈) 단위 분할
       const rawSentences = fullText
-        .split(/(?<=[.!?])\s+/)
-        .map((s) => s.trim().replace(/\s+/g, ' '))
-        .filter((s) => s.length > 3);
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
 
       if (rawSentences.length > 0) {
         setAllParsedSentences(
@@ -272,7 +274,7 @@ export default function TranscriptionApp() {
       .map((item) => item.text.trim());
 
     if (selectedTexts.length === 0) {
-      return alert('구역으로 등록할 문장을 하나 이상 선택해 주세요.');
+      return alert('구역으로 등록할 줄을 하나 이상 선택해 주세요.');
     }
 
     const name = sectionName.trim() || `구역 ${sections.length + 1}`;
@@ -289,7 +291,7 @@ export default function TranscriptionApp() {
       prev.map((item) => (item.selected ? { ...item, selected: false } : item))
     );
 
-    alert(`'${name}' 구역(${selectedTexts.length}개 문장)이 추가되었습니다.`);
+    alert(`'${name}' 구역(${selectedTexts.length}개 줄)이 추가되었습니다.`);
   };
 
   const handleRemoveSection = (id: string) => {
@@ -319,10 +321,10 @@ export default function TranscriptionApp() {
     setIsReviewing(false);
     setSections([]);
     setExtractedTitle('');
-    alert(`필사문 '${newDoc.title}'이(가) 성공적으로 등록되었습니다! (총 ${mergedSentences.length}개 문장)`);
+    alert(`필사문 '${newDoc.title}'이(가) 성공적으로 등록되었습니다! (총 ${mergedSentences.length}개 줄)`);
   };
 
-  // ---------------- 오타율 & 작성률 실시간 계산 (현재 input 최우선 적용) ----------------
+  // 실시간 연산 지표
   const calculateStats = () => {
     if (!currentDoc || currentDoc.sentences.length === 0) {
       return { completionRate: 0, errorRate: 0, totalOriginalChars: 0, totalTypedChars: 0 };
@@ -335,7 +337,6 @@ export default function TranscriptionApp() {
     currentDoc.sentences.forEach((origSentence, idx) => {
       totalOriginalChars += origSentence.length;
 
-      // 현재 작성 중인 문장은 최신 input 값을 쓰고, 나머지는 sentenceDrafts 캐시값 참조
       const typed = idx === currentIndex ? input : (sentenceDrafts[idx] || '');
       totalTypedChars += typed.length;
 
@@ -393,7 +394,7 @@ export default function TranscriptionApp() {
                 >
                   {documents.map((d) => (
                     <option key={d.id} value={d.id}>
-                      {d.title} ({d.sentences.length}문장)
+                      {d.title} ({d.sentences.length}줄)
                     </option>
                   ))}
                 </select>
@@ -413,7 +414,7 @@ export default function TranscriptionApp() {
             <form onSubmit={handleAdminLogin} className="flex gap-2">
               <input
                 type="password"
-                placeholder="비밀번호"
+                placeholder="관리자 비밀번호 입력"
                 value={adminPassword}
                 onChange={(e) => setAdminPassword(e.target.value)}
                 className="flex-1 p-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-800"
@@ -501,7 +502,7 @@ export default function TranscriptionApp() {
                     <div className="space-y-1">
                       {sections.map((sec) => (
                         <div key={sec.id} className="flex justify-between items-center text-xs bg-white p-2 rounded border border-emerald-100">
-                          <span className="font-semibold text-slate-700">{sec.name} ({sec.sentences.length}개 문장)</span>
+                          <span className="font-semibold text-slate-700">{sec.name} ({sec.sentences.length}개 줄)</span>
                           <button onClick={() => handleRemoveSection(sec.id)} className="text-red-500 hover:underline">삭제</button>
                         </div>
                       ))}
@@ -522,14 +523,14 @@ export default function TranscriptionApp() {
                       onClick={handleAddSection}
                       className="bg-slate-800 text-white text-xs px-4 py-2 rounded-lg font-medium hover:bg-slate-700"
                     >
-                      선택한 문장 구역 추가
+                      선택한 줄 구역 추가
                     </button>
                   </div>
                 </div>
 
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">
-                    <span className="text-xs text-slate-500 font-semibold">PDF에서 추출된 문장 목록 ({allParsedSentences.length})</span>
+                    <span className="text-xs text-slate-500 font-semibold">PDF에서 추출된 줄 목록 ({allParsedSentences.length})</span>
                     <div className="flex gap-2 text-xs">
                       <button onClick={() => toggleAllSelection(true)} className="text-slate-600 underline">전체 선택</button>
                       <button onClick={() => toggleAllSelection(false)} className="text-slate-600 underline">전체 해제</button>
@@ -566,7 +567,7 @@ export default function TranscriptionApp() {
                 {documents.map((doc) => (
                   <li key={doc.id} className="p-3 text-sm text-slate-700 flex justify-between bg-slate-50">
                     <span className="font-medium">{doc.title}</span>
-                    <span className="text-xs text-slate-400">{doc.sentences.length}개 문장</span>
+                    <span className="text-xs text-slate-400">{doc.sentences.length}개 줄</span>
                   </li>
                 ))}
               </ul>
@@ -584,7 +585,7 @@ export default function TranscriptionApp() {
                     <tr>
                       <th className="p-3">사용자명</th>
                       <th className="p-3">필사문 제목</th>
-                      <th className="p-3">완주 문장 수</th>
+                      <th className="p-3">완주 줄 수</th>
                       <th className="p-3">최근 학습 일시</th>
                     </tr>
                   </thead>
@@ -668,7 +669,7 @@ export default function TranscriptionApp() {
 
           <div className="flex justify-between items-center text-xs text-slate-500 border-t border-slate-200/40 pt-2">
             <span>
-              현재 위치: <strong className="text-slate-800 font-semibold">{currentIndex + 1}</strong> / {totalSentences} 문장
+              현재 위치: <strong className="text-slate-800 font-semibold">{currentIndex + 1}</strong> / {totalSentences} 줄
             </span>
           </div>
         </div>
@@ -676,8 +677,8 @@ export default function TranscriptionApp() {
         {/* 필사 입력 및 제어 영역 */}
         <div className="space-y-4">
           <div className="flex justify-between items-center text-xs text-slate-400 font-medium">
-            <span>문장 {currentIndex + 1} / {totalSentences}</span>
-            <span>현재 문장 작성률: <strong className="text-emerald-600">{Math.min(100, Math.round((input.length / (currentSentence.length || 1)) * 100))}%</strong></span>
+            <span>줄 {currentIndex + 1} / {totalSentences}</span>
+            <span>현재 줄 작성률: <strong className="text-emerald-600">{Math.min(100, Math.round((input.length / (currentSentence.length || 1)) * 100))}%</strong></span>
           </div>
 
           <div className="p-5 bg-slate-50 rounded-xl text-slate-700 font-serif text-lg leading-relaxed border border-slate-200/60 select-none min-h-[100px]">
@@ -697,7 +698,7 @@ export default function TranscriptionApp() {
           <textarea
             value={input}
             onChange={(e) => handleInputChange(e.target.value)}
-            placeholder="위 문장을 똑같이 입력해 주세요..."
+            placeholder="위 줄을 똑같이 입력해 주세요..."
             rows={3}
             className="w-full p-4 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-800 font-serif text-lg text-slate-800 resize-none"
           />
@@ -709,7 +710,7 @@ export default function TranscriptionApp() {
               disabled={currentIndex === 0}
               className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-30"
             >
-              ◀ 이전 문장
+              ◀ 이전 줄
             </button>
 
             <div className="flex gap-2">
@@ -718,7 +719,7 @@ export default function TranscriptionApp() {
                 disabled={currentIndex === totalSentences - 1}
                 className="px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors disabled:opacity-30"
               >
-                다음 문장 ▶
+                다음 줄 ▶
               </button>
 
               <button
