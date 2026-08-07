@@ -5,6 +5,7 @@ import React, { useState, useEffect } from 'react';
 interface DocumentData {
   id: string;
   title: string;
+  fileName?: string;
   sentences: string[];
   disabled?: boolean;
 }
@@ -27,6 +28,13 @@ interface SectionItem {
   sentences: string[];
 }
 
+// 📌 public/data/ 폴더에 실제 배치된 3개 기본 필사 문서 정보 (데미안 2,027문장 반영)
+const PUBLIC_DATA_FILES = [
+  { id: 'doc-sutra', label: '금강경(불경)(261문장)', fileName: 'buta-diamond-sutra.txt' },
+  { id: 'doc-exodus', label: '출애굽기(성경)(1,213문장)', fileName: 'bible-exodus.txt' },
+  { id: 'doc-demian', label: '데미안(소설)(2,027문장)', fileName: 'demian.txt' },
+];
+
 export default function TranscriptionApp() {
   const [viewMode, setViewMode] = useState<'login' | 'user' | 'admin'>('login');
   const [userName, setUserName] = useState('');
@@ -34,7 +42,7 @@ export default function TranscriptionApp() {
 
   // 문서 및 진행 상황 데이터
   const [documents, setDocuments] = useState<DocumentData[]>([]);
-  const [selectedDocId, setSelectedDocId] = useState<string>('');
+  const [selectedDocId, setSelectedDocId] = useState<string>(PUBLIC_DATA_FILES[0].id);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [input, setInput] = useState('');
   const [sentenceDrafts, setSentenceDrafts] = useState<Record<number, string>>({});
@@ -55,7 +63,7 @@ export default function TranscriptionApp() {
   const [showUserHistoryModal, setShowUserHistoryModal] = useState(false);
 
   // 관리자 전용
-  const [dataFileName, setDataFileName] = useState('sample.txt');
+  const [dataFileName, setDataFileName] = useState(PUBLIC_DATA_FILES[0]?.fileName || '');
   const [extractedTitle, setExtractedTitle] = useState('');
   const [allParsedSentences, setAllParsedSentences] = useState<{ id: number; text: string; selected: boolean }[]>([]);
   const [sections, setSections] = useState<SectionItem[]>([]);
@@ -65,29 +73,44 @@ export default function TranscriptionApp() {
   // 진행 상태 맵
   const [userProgressMap, setUserProgressMap] = useState<Record<string, Record<string, UserProgress>>>({});
 
-  // 초기 로드 (금강경 디폴트 문서 설정)
+  // 초기 문서 목록 로드 및 저장소 기존 데이터 제목 최신화 동기화
   useEffect(() => {
     const loadedDocs = localStorage.getItem('transcription_docs');
     const loadedProgress = localStorage.getItem('transcription_progress');
 
+    let initialDocs: DocumentData[] = [];
+
     if (loadedDocs) {
-      const parsedDocs: DocumentData[] = JSON.parse(loadedDocs);
-      setDocuments(parsedDocs);
-      const activeDocs = parsedDocs.filter((d) => !d.disabled);
-      if (activeDocs.length > 0) setSelectedDocId(activeDocs[0].id);
-    } else {
-      const defaultDoc: DocumentData = {
-        id: 'default-1',
-        title: '금강경(금강반야바라밀경) (261문장)',
-        sentences: [
-          "이와 같이 나는 들었다.",
-          "한때 부처님께서 사위국 기수급고독원에서 대비구 1250인과 함께 계셨다."
-        ],
-        disabled: false
-      };
-      setDocuments([defaultDoc]);
-      setSelectedDocId(defaultDoc.id);
-      localStorage.setItem('transcription_docs', JSON.stringify([defaultDoc]));
+      initialDocs = JSON.parse(loadedDocs);
+    }
+
+    // 기본 3개 문서의 제목을 PUBLIC_DATA_FILES의 최신 라벨(2,027문장)로 동기화
+    PUBLIC_DATA_FILES.forEach((defaultFile) => {
+      const existingIdx = initialDocs.findIndex(
+        (d) => d.id === defaultFile.id || d.fileName === defaultFile.fileName
+      );
+
+      if (existingIdx !== -1) {
+        initialDocs[existingIdx].title = defaultFile.label;
+        initialDocs[existingIdx].id = defaultFile.id;
+        initialDocs[existingIdx].fileName = defaultFile.fileName;
+      } else {
+        initialDocs.push({
+          id: defaultFile.id,
+          title: defaultFile.label,
+          fileName: defaultFile.fileName,
+          sentences: [],
+          disabled: false,
+        });
+      }
+    });
+
+    setDocuments(initialDocs);
+    localStorage.setItem('transcription_docs', JSON.stringify(initialDocs));
+
+    const activeDocs = initialDocs.filter((d) => !d.disabled);
+    if (activeDocs.length > 0) {
+      setSelectedDocId(activeDocs[0].id);
     }
 
     if (loadedProgress) {
@@ -116,6 +139,44 @@ export default function TranscriptionApp() {
     });
 
     return userMap[matchingKeys[0]];
+  };
+
+  // 텍스트 파일 파싱 전용 헬퍼 함수
+  const parseFileToSentences = async (fileName: string): Promise<string[]> => {
+    const filePath = `/data/${fileName}`;
+    const response = await fetch(filePath);
+    if (!response.ok) {
+      throw new Error(`public/data/${fileName} 파일을 읽어올 수 없습니다.`);
+    }
+
+    let fullText = '';
+    if (fileName.toLowerCase().endsWith('.pdf')) {
+      const pdfjsLib = await import('pdfjs-dist');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+
+      const arrayBuffer = await response.arrayBuffer();
+      const loadingTask = pdfjsLib.getDocument({
+        data: arrayBuffer,
+        cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/cmaps/`,
+        cMapPacked: true,
+        standardFontDataUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/standard_fonts/`,
+      });
+
+      const pdf = await loadingTask.promise;
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const tokenProps = await page.getTextContent();
+        const pageText = tokenProps.items.map((item: any) => item.str).join(' ');
+        fullText += pageText + '\n';
+      }
+    } else {
+      fullText = await response.text();
+    }
+
+    return fullText
+      .split(/(?<=[.!?]["']?)\s+|\r?\n+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
   };
 
   useEffect(() => {
@@ -225,7 +286,6 @@ export default function TranscriptionApp() {
     }
   };
 
-  // ✅ 작성 완료 버튼 핸들러: 비동기 처리 보정을 위한 newCompleted 직접 전달
   const handleCompleteSentence = () => {
     if (!currentDoc || isCurrentSentenceReadOnly) return;
     const totalSentences = currentDoc.sentences.length;
@@ -242,7 +302,6 @@ export default function TranscriptionApp() {
 
     if (newCompleted >= totalSentences) {
       saveUserProgress(currentIndex, updatedDrafts, newCompleted, undefined, undefined, nowStr);
-      // ✅ 오타 연산 시 최신 완료 개수(newCompleted)를 넘겨 오타율 오차 원천 해결
       const finalStats = calculateStats(currentDoc, updatedDrafts, currentIndex, input, true, newCompleted);
       setCongratsData({
         startDate: startDate || nowStr,
@@ -254,15 +313,34 @@ export default function TranscriptionApp() {
     }
   };
 
-  const handleUserLogin = (e: React.FormEvent) => {
+  const handleUserLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedUser = userName.trim();
     if (!trimmedUser) return alert('사용자 이름을 입력해 주세요.');
     if (!selectedDocId) return alert('필사할 필사문 제목을 선택해 주세요.');
 
-    const targetDoc = documents.find((d) => d.id === selectedDocId);
+    let targetDoc = documents.find((d) => d.id === selectedDocId);
     if (targetDoc?.disabled) {
       return alert('현재 사용이 중지된 필사문입니다. 다른 필사문을 선택해 주세요.');
+    }
+
+    if (targetDoc && targetDoc.sentences.length === 0) {
+      const matchedMeta = PUBLIC_DATA_FILES.find((p) => p.id === targetDoc?.id || p.fileName === targetDoc?.fileName);
+      const fileNameToFetch = targetDoc.fileName || matchedMeta?.fileName;
+
+      if (fileNameToFetch) {
+        try {
+          const parsedSentences = await parseFileToSentences(fileNameToFetch);
+          const updatedDocs = documents.map((d) =>
+            d.id === selectedDocId ? { ...d, sentences: parsedSentences } : d
+          );
+          setDocuments(updatedDocs);
+          localStorage.setItem('transcription_docs', JSON.stringify(updatedDocs));
+          targetDoc = updatedDocs.find((d) => d.id === selectedDocId);
+        } catch (err: any) {
+          return alert(`문서 파일을 불러오는 중 오류가 발생했습니다:\n${err?.message || err}`);
+        }
+      }
     }
 
     const latestProgress = getLatestUserProgress(trimmedUser, selectedDocId);
@@ -372,49 +450,16 @@ export default function TranscriptionApp() {
 
   const handleLoadFromDataDir = async () => {
     const fileName = dataFileName.trim();
-    if (!fileName) return alert('파일명(예: sample.txt, sample1.pdf 등)을 입력해 주세요.');
+    if (!fileName) return alert('파싱할 파일을 선택해 주세요.');
 
-    const filePath = `/data/${fileName}`;
-    const cleanTitle = fileName.replace(/\.[^/.]+$/, '');
-    setExtractedTitle(cleanTitle);
+    const selectedFileObj = PUBLIC_DATA_FILES.find((f) => f.fileName === fileName);
+    const defaultLabel = selectedFileObj ? selectedFileObj.label : fileName.replace(/\.[^/.]+$/, '');
+
+    setExtractedTitle(defaultLabel);
     setSections([]);
 
     try {
-      const response = await fetch(filePath);
-      if (!response.ok) {
-        return alert(`public/data/${fileName} 파일을 서버에서 찾을 수 없습니다. (상태 코드: ${response.status})`);
-      }
-
-      let fullText = '';
-      const isPdf = fileName.toLowerCase().endsWith('.pdf');
-
-      if (isPdf) {
-        const pdfjsLib = await import('pdfjs-dist');
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
-
-        const arrayBuffer = await response.arrayBuffer();
-        const loadingTask = pdfjsLib.getDocument({
-          data: arrayBuffer,
-          cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/cmaps/`,
-          cMapPacked: true,
-          standardFontDataUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/standard_fonts/`,
-        });
-
-        const pdf = await loadingTask.promise;
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const tokenProps = await page.getTextContent();
-          const pageText = tokenProps.items.map((item: any) => item.str).join(' ');
-          fullText += pageText + '\n';
-        }
-      } else {
-        fullText = await response.text();
-      }
-
-      const rawSentences = fullText
-        .split(/(?<=[.!?])\s+|\r?\n/)
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
+      const rawSentences = await parseFileToSentences(fileName);
 
       if (rawSentences.length > 0) {
         setAllParsedSentences(
@@ -538,7 +583,6 @@ export default function TranscriptionApp() {
     }
   };
 
-  // ✅ 통계 연산 로직 (completedCountOverride 적용)
   const calculateStats = (
     targetDocData?: DocumentData,
     targetDrafts?: Record<number, string>,
@@ -595,8 +639,6 @@ export default function TranscriptionApp() {
 
   const stats = calculateStats();
 
-  // ---------------- 화면 렌더링 ----------------
-
   // 1. 로그인 화면
   if (viewMode === 'login') {
     const activeDocuments = documents.filter((d) => !d.disabled);
@@ -630,11 +672,17 @@ export default function TranscriptionApp() {
                     onChange={(e) => setSelectedDocId(e.target.value)}
                     className="w-full p-4 border border-slate-300 rounded-xl text-base bg-white focus:outline-none focus:ring-2 focus:ring-slate-800 font-bold whitespace-normal"
                   >
-                    {activeDocuments.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.title} ({d.sentences.length}문장)
-                      </option>
-                    ))}
+                    {activeDocuments.map((d) => {
+                      const hasCountInTitle = d.title.includes('문장)');
+                      const displayTitle = hasCountInTitle
+                        ? d.title
+                        : `${d.title}${d.sentences.length > 0 ? ` (${d.sentences.length}문장)` : ''}`;
+                      return (
+                        <option key={d.id} value={d.id}>
+                          {displayTitle}
+                        </option>
+                      );
+                    })}
                   </select>
                 ) : (
                   <div className="p-4 border border-amber-200 bg-amber-50 rounded-xl text-base text-amber-800 font-bold">
@@ -708,16 +756,20 @@ export default function TranscriptionApp() {
             {!isReviewing ? (
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                 <span className="text-xs font-semibold text-slate-600 block">
-                  transcription-app/public/data/ 경로의 파일명 입력 (PDF, TXT, MD, CSV 등 지원):
+                  public/data/ 경로에서 파싱할 파일 선택:
                 </span>
                 <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="예: sample.txt, sample1.pdf 등"
+                  <select
                     value={dataFileName}
                     onChange={(e) => setDataFileName(e.target.value)}
-                    className="flex-1 p-2.5 text-sm border border-slate-300 rounded-lg font-mono"
-                  />
+                    className="flex-1 p-2.5 text-sm border border-slate-300 rounded-lg font-medium bg-white focus:outline-none focus:ring-2 focus:ring-slate-800 cursor-pointer"
+                  >
+                    {PUBLIC_DATA_FILES.map((item) => (
+                      <option key={item.fileName} value={item.fileName}>
+                        {item.label} ({item.fileName})
+                      </option>
+                    ))}
+                  </select>
                   <button
                     onClick={handleLoadFromDataDir}
                     className="bg-slate-800 text-white text-xs px-5 py-2.5 rounded-lg font-medium hover:bg-slate-700 whitespace-nowrap"
