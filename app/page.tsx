@@ -24,7 +24,7 @@ interface DocProgress {
 
 // 화면 노출용 문서 목록 (제목 <-> 파일명 매핑)
 const DOC_MAPPING: Record<string, string> = {
-  '금강경': 'sample.txt',
+  '금강경(금강반야바라밀경) (261문장)': 'sample.txt',
 };
 
 export default function TranscriptionApp() {
@@ -34,8 +34,8 @@ export default function TranscriptionApp() {
   const [userName, setUserName] = useState<string>('');
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
 
-  // 화면 표시용 문서 제목 (default: "금강경")
-  const [selectedDocTitle, setSelectedDocTitle] = useState<string>('금강경');
+  // 화면 표시용 문서 제목 (default)
+  const [selectedDocTitle, setSelectedDocTitle] = useState<string>('금강경(금강반야바라밀경) (261문장)');
   const [docTitles] = useState<string[]>(Object.keys(DOC_MAPPING));
 
   // 실제 로드할 파일명
@@ -52,7 +52,6 @@ export default function TranscriptionApp() {
   // 모달 및 UI 상태
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
   const [showCompletionModal, setShowCompletionModal] = useState<boolean>(false);
-  const [showAdminModal, setShowAdminModal] = useState<boolean>(false);
   const [adminPassword, setAdminPassword] = useState<string>('');
 
   // 이력 및 캐시
@@ -121,28 +120,43 @@ export default function TranscriptionApp() {
   }, [currentIndex, sentenceDrafts]);
 
   // ==========================================
-  // 5. 실시간 오타율 및 통계 연산
+  // 5. 정확한 오타율 및 통계 연산 로직 (보정 완료)
   // ==========================================
-  const calculateStats = (overrideCompletedCount?: number) => {
+  const calculateStats = (
+    customDrafts?: Record<number, string>,
+    customInput?: string,
+    overrideCompletedCount?: number
+  ) => {
+    const activeDrafts = customDrafts ?? sentenceDrafts;
+    const activeInput = customInput ?? input;
+
     let totalChars = 0;
     let totalErrors = 0;
 
-    sentences.forEach((sentence) => {
-      totalChars += sentence.length;
+    // 1. 전체 원문 글자 수 계산
+    sentences.forEach((s) => {
+      totalChars += s.length;
     });
 
-    if (totalChars === 0) return { progress: 0, typoRate: 0, totalErrors: 0, totalChars: 0 };
+    if (totalChars === 0) {
+      return { progress: 0, typoRate: 0, totalErrors: 0, totalChars: 0 };
+    }
 
-    // 작성 중인 오타 연산
+    // 2. 전체 문장 순회하며 오타 수 정밀 연산
     sentences.forEach((origSentence, idx) => {
-      const userInput = idx === currentIndex ? input : sentenceDrafts[idx] || '';
-      for (let i = 0; i < userInput.length; i++) {
-        if (i < origSentence.length) {
-          if (userInput[i] !== origSentence[i]) {
-            totalErrors++;
+      // 현재 보고 있는 문장은 activeInput 참조, 그 외 문장은 activeDrafts 참조
+      const userInput = idx === currentIndex ? activeInput : activeDrafts[idx] || '';
+
+      if (userInput.length > 0) {
+        const maxLen = Math.max(origSentence.length, userInput.length);
+        for (let i = 0; i < maxLen; i++) {
+          if (i < userInput.length && i < origSentence.length) {
+            if (userInput[i] !== origSentence[i]) {
+              totalErrors++; // 글자가 틀린 경우
+            }
+          } else {
+            totalErrors++; // 원문보다 짧거나 초과해서 친 경우
           }
-        } else {
-          totalErrors++; // 초과 입력분 오타 처리
         }
       }
     });
@@ -154,12 +168,15 @@ export default function TranscriptionApp() {
     return { progress, typoRate, totalErrors, totalChars };
   };
 
+  // 실시간 입력 및 상태 변경 시 통계 업데이트
   useEffect(() => {
-    setStats(calculateStats());
+    if (sentences.length > 0) {
+      setStats(calculateStats());
+    }
   }, [input, sentenceDrafts, completedCount, sentences, currentIndex]);
 
   // ==========================================
-  // 6. 이벤트 핸들러 (로그인, 완료, 이동)
+  // 6. 이벤트 핸들러
   // ==========================================
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -178,7 +195,7 @@ export default function TranscriptionApp() {
       setCompletedCount(nextCompletedCount);
     }
 
-    // 캐시 저장
+    // 로컬 스토리지 상태 저장
     const storageKey = `progress_${userName}_${selectedFileName}`;
     const progressData: DocProgress = {
       currentIndex,
@@ -188,9 +205,10 @@ export default function TranscriptionApp() {
     };
     localStorage.setItem(storageKey, JSON.stringify(progressData));
 
-    // 마지막 문장 작성 완료 시 모달 팝업
+    // 마지막 문장에서 작성 완료 클릭 시 정확한 최종 수치로 완주 처리
     if (currentIndex === sentences.length - 1) {
-      const finalStats = calculateStats(nextCompletedCount);
+      const finalStats = calculateStats(updatedDrafts, input, nextCompletedCount);
+      setStats(finalStats);
       saveToHistory(finalStats);
       setShowCompletionModal(true);
     }
@@ -223,45 +241,47 @@ export default function TranscriptionApp() {
     setShowHistoryModal(true);
   };
 
-  const handleAdminAccess = () => {
+  const handleAdminAccess = (e: React.FormEvent) => {
+    e.preventDefault();
     if (adminPassword === 'admin!@#') {
       alert('관리자 인증이 완료되었습니다.');
-      setShowAdminModal(false);
       setAdminPassword('');
     } else {
       alert('비밀번호가 올바르지 않습니다.');
     }
   };
 
-  // 현재 문장 완료 상태 여부
   const isCurrentSentenceCompleted = Boolean(sentenceDrafts[currentIndex]);
 
   // ==========================================
-  // 7. Render: 로그인 화면
+  // 7. Render: 초기 로그인 화면
   // ==========================================
   if (!isLoggedIn) {
     return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full border border-slate-200">
-          <h1 className="text-3xl font-bold text-slate-800 mb-6 text-center">✍️ 시니어 필사 서비스</h1>
+      <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full border border-slate-200 mb-6">
+          <h1 className="text-4xl font-extrabold text-slate-800 mb-2">필사 서비스</h1>
+          <p className="text-lg text-slate-600 mb-8">이름을 입력하고 필사할 글을 선택해 주세요.</p>
+
           <form onSubmit={handleLogin} className="space-y-6">
             <div>
-              <label className="block text-xl font-semibold text-slate-700 mb-2">성함을 입력해 주세요</label>
+              <label className="block text-xl font-bold text-slate-800 mb-2">사용자 이름</label>
               <input
                 type="text"
                 value={userName}
                 onChange={(e) => setUserName(e.target.value)}
-                placeholder="예: 홍길동"
-                className="w-full text-2xl p-4 border-2 border-slate-300 rounded-xl focus:border-blue-500 focus:outline-none"
+                placeholder="성함을 입력하세요"
+                className="w-full text-xl p-4 border border-slate-300 rounded-xl focus:border-emerald-600 focus:outline-none"
                 required
               />
             </div>
+
             <div>
-              <label className="block text-xl font-semibold text-slate-700 mb-2">필사문 선택</label>
+              <label className="block text-xl font-bold text-slate-800 mb-2">필사문 제목 선택</label>
               <select
                 value={selectedDocTitle}
                 onChange={(e) => setSelectedDocTitle(e.target.value)}
-                className="w-full text-xl p-4 border-2 border-slate-300 rounded-xl bg-white focus:border-blue-500 focus:outline-none"
+                className="w-full text-xl p-4 border border-slate-300 rounded-xl bg-white focus:border-emerald-600 focus:outline-none"
               >
                 {docTitles.map((title) => (
                   <option key={title} value={title}>
@@ -270,11 +290,31 @@ export default function TranscriptionApp() {
                 ))}
               </select>
             </div>
+
             <button
               type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white text-2xl font-bold py-4 rounded-xl shadow-lg transition"
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-2xl font-bold py-4 rounded-xl shadow-md transition"
             >
               필사 시작하기
+            </button>
+          </form>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl shadow-lg max-w-md w-full border border-slate-200">
+          <h2 className="text-xl font-bold text-slate-800 mb-3">관리자 로그인</h2>
+          <form onSubmit={handleAdminAccess} className="flex gap-3">
+            <input
+              type="password"
+              value={adminPassword}
+              onChange={(e) => setAdminPassword(e.target.value)}
+              placeholder="비밀번호 입력"
+              className="flex-1 text-lg p-3 border border-slate-300 rounded-xl focus:border-slate-600 focus:outline-none"
+            />
+            <button
+              type="submit"
+              className="bg-slate-800 hover:bg-slate-900 text-white text-lg font-bold px-6 py-3 rounded-xl transition"
+            >
+              접속
             </button>
           </form>
         </div>
@@ -293,7 +333,7 @@ export default function TranscriptionApp() {
       <header className="w-full max-w-4xl bg-white p-6 rounded-2xl shadow-md border border-slate-200 mb-6 flex flex-wrap justify-between items-center gap-4">
         <div>
           <span className="text-2xl font-bold text-slate-800">{userName} 님</span>
-          <span className="text-xl font-semibold text-blue-600 ml-3">[{selectedDocTitle}]</span>
+          <span className="text-xl font-semibold text-emerald-600 ml-3">[{selectedDocTitle}]</span>
         </div>
         <div className="flex gap-3">
           <button
@@ -302,21 +342,15 @@ export default function TranscriptionApp() {
           >
             📜 내 필사 이력
           </button>
-          <button
-            onClick={() => setShowAdminModal(true)}
-            className="bg-slate-600 hover:bg-slate-700 text-white text-lg font-bold px-5 py-2.5 rounded-xl transition"
-          >
-            ⚙️ 관리자
-          </button>
         </div>
       </header>
 
       {/* 통계 지표 대시보드 */}
       <div className="w-full max-w-4xl grid grid-cols-2 gap-4 mb-6">
-        <div className="bg-blue-50 border-2 border-blue-200 p-5 rounded-2xl text-center">
-          <div className="text-lg font-semibold text-blue-700 mb-1">전체 진행률</div>
-          <div className="text-4xl font-extrabold text-blue-900">{stats.progress}%</div>
-          <div className="text-sm text-blue-600 mt-1">({completedCount} / {sentences.length} 문장)</div>
+        <div className="bg-emerald-50 border-2 border-emerald-200 p-5 rounded-2xl text-center">
+          <div className="text-lg font-semibold text-emerald-700 mb-1">전체 진행률</div>
+          <div className="text-4xl font-extrabold text-emerald-900">{stats.progress}%</div>
+          <div className="text-sm text-emerald-600 mt-1">({completedCount} / {sentences.length} 문장)</div>
         </div>
         <div className="bg-rose-50 border-2 border-rose-200 p-5 rounded-2xl text-center">
           <div className="text-lg font-semibold text-rose-700 mb-1">현재 오타율</div>
@@ -328,12 +362,10 @@ export default function TranscriptionApp() {
       {/* 필사 본문 카드 */}
       <main className="w-full max-w-4xl bg-white p-6 md:p-8 rounded-2xl shadow-lg border border-slate-200 mb-6 flex-1 flex flex-col justify-between">
         <div>
-          {/* 문장 순서 표시 */}
-          <div className="text-xl font-bold text-blue-600 mb-4">
+          <div className="text-xl font-bold text-emerald-600 mb-4">
             문장 {currentIndex + 1} / {sentences.length}
           </div>
 
-          {/* 원문 실시간 가이드 */}
           <div className="bg-slate-100 p-6 rounded-xl border-2 border-slate-300 mb-6 min-h-[120px]">
             <div className="text-2xl md:text-3xl font-medium tracking-wide leading-relaxed text-slate-800 break-keep">
               {currentTargetSentence.split('').map((char, i) => {
@@ -350,7 +382,6 @@ export default function TranscriptionApp() {
             </div>
           </div>
 
-          {/* 필사 입력창 */}
           <textarea
             ref={textareaRef}
             value={input}
@@ -361,12 +392,11 @@ export default function TranscriptionApp() {
             className={`w-full text-2xl md:text-3xl p-5 border-2 rounded-xl min-h-[160px] focus:outline-none transition leading-relaxed ${
               isCurrentSentenceCompleted
                 ? 'bg-slate-100 border-slate-300 text-slate-500 cursor-not-allowed'
-                : 'border-blue-400 focus:border-blue-600 bg-white'
+                : 'border-emerald-400 focus:border-emerald-600 bg-white'
             }`}
           />
         </div>
 
-        {/* 제어 버튼 영역 */}
         <div className="flex justify-between items-center gap-4 mt-8">
           <button
             onClick={() => setCurrentIndex((prev) => Math.max(0, prev - 1))}
@@ -379,7 +409,7 @@ export default function TranscriptionApp() {
           <button
             onClick={handleSaveSentence}
             disabled={isCurrentSentenceCompleted || input.length === 0}
-            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-2xl font-bold px-10 py-4 rounded-xl shadow-md transition"
+            className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-2xl font-bold px-10 py-4 rounded-xl shadow-md transition"
           >
             작성 완료
           </button>
@@ -394,11 +424,11 @@ export default function TranscriptionApp() {
         </div>
       </main>
 
-      {/* 완주 축하 팝업 모달 */}
+      {/* 완주 모달 */}
       {showCompletionModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
           <div className="bg-white p-8 rounded-2xl max-w-lg w-full text-center shadow-2xl border border-slate-200">
-            <h2 className="text-4xl font-extrabold text-blue-600 mb-4">🎉 필사 완주 축하합니다!</h2>
+            <h2 className="text-4xl font-extrabold text-emerald-600 mb-4">🎉 필사 완주 축하합니다!</h2>
             <p className="text-xl text-slate-700 mb-6">모든 문장을 성공적으로 필사하셨습니다.</p>
             <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 mb-6 space-y-3 text-left text-xl">
               <div>• 최종 오타율: <span className="font-bold text-rose-600">{stats.typoRate}%</span></div>
@@ -407,7 +437,7 @@ export default function TranscriptionApp() {
             </div>
             <button
               onClick={() => setShowCompletionModal(false)}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white text-2xl font-bold py-4 rounded-xl transition shadow-lg"
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-2xl font-bold py-4 rounded-xl transition shadow-lg"
             >
               확인
             </button>
@@ -415,7 +445,7 @@ export default function TranscriptionApp() {
         </div>
       )}
 
-      {/* 내 필사 이력 모달 */}
+      {/* 이력 모달 */}
       {showHistoryModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
           <div className="bg-white p-8 rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 max-h-[80vh] flex flex-col">
@@ -427,7 +457,7 @@ export default function TranscriptionApp() {
                 userHistories.map((item, index) => (
                   <div key={index} className="bg-slate-50 p-5 rounded-xl border border-slate-200 flex justify-between items-center">
                     <div>
-                      <span className="bg-blue-100 text-blue-800 font-bold px-3 py-1 rounded-lg text-lg mr-3">
+                      <span className="bg-emerald-100 text-emerald-800 font-bold px-3 py-1 rounded-lg text-lg mr-3">
                         {item.version}
                       </span>
                       <span className="text-slate-500 text-base">{item.completedAt}</span>
@@ -446,36 +476,6 @@ export default function TranscriptionApp() {
             >
               닫기
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* 관리자 모달 */}
-      {showAdminModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white p-8 rounded-2xl max-w-md w-full shadow-2xl border border-slate-200">
-            <h2 className="text-3xl font-bold text-slate-800 mb-6">⚙️ 관리자 인증</h2>
-            <input
-              type="password"
-              value={adminPassword}
-              onChange={(e) => setAdminPassword(e.target.value)}
-              placeholder="비밀번호 입력"
-              className="w-full text-2xl p-4 border-2 border-slate-300 rounded-xl mb-6 focus:border-blue-500 focus:outline-none"
-            />
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowAdminModal(false)}
-                className="flex-1 bg-slate-300 hover:bg-slate-400 text-slate-800 text-xl font-bold py-3.5 rounded-xl transition"
-              >
-                취소
-              </button>
-              <button
-                onClick={handleAdminAccess}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xl font-bold py-3.5 rounded-xl transition"
-              >
-                인증
-              </button>
-            </div>
           </div>
         </div>
       )}
