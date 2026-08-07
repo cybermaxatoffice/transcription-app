@@ -7,10 +7,10 @@
 ## 📌 1. 프로젝트 초기 환경 설정 및 라이브러리 연관 구조
 
 ### 1.1 기술 스택 (Tech Stack)
-* **Framework**: Next.js (App Router, React 19)
+* **Framework**: Next.js 15 (App Router, Turbopack, React 19)
 * **Language**: TypeScript
 * **Styling**: Tailwind CSS
-* **PDF Parsing**: `pdfjs-dist` (PDF 문서 텍스트 파싱)
+* **PDF Parsing**: `pdfjs-dist` v4 (PDF 문서 텍스트 파싱)
 * **Version Control**: Git & GitHub Desktop
 
 ### 1.2 프로젝트 디렉토리 구조
@@ -20,21 +20,19 @@ transcription-app-github/            <- 최상위 Git 리포지토리
     ├── app/
     │   └── page.tsx                   <- 메인 필사 서비스 소스 코드
     ├── public/
-    │   └── data/                      <- 정적 PDF 파일 배치 디렉토리
+    │   └── data/                      <- 정적 PDF/TXT 파일 배치 디렉토리
     ├── package.json                   <- 의존성 패키지 관리
-    ├── next.config.ts                 <- Next.js 빌드 및 웹팩 설정
+    ├── next.config.ts                 <- Next.js 빌드 설정
     └── QnA.md                         <- 본 기술 및 트러블슈팅 종합 문서
 ```
 
 ### 1.3 라이브러리 간 연관성 및 설치 방법
 
-1. **`pdfjs-dist` (v3 버전 고정)**
+1. **`pdfjs-dist` (PDF 파싱 라이브러리)**
    * **역할**: 사용자가 `public/data`에 배치한 PDF 파일을 읽어 문장 단위로 분할 및 파싱.
-   * **연관성 주의사항**: Next.js SSR 및 Node.js 환경에서는 v4 이상 최신 버전 사용 시 Canvas 호환 에러가 발생하므로 반드시 **v3 버전(3.11.174)**을 사용해야 합니다.
-   * **설치 명령어**:
+   * **설치 및 사용법**: Next.js 15 (Turbopack) 브라우저 빌드 환경에서는 최신 v4 버전을 설치한 후 소스코드 내에서 동적 로딩(Dynamic Import)으로 불러와 사용합니다.
      ```bash
-     npm uninstall pdfjs-dist
-     npm install pdfjs-dist@3.11.174 --save
+     npm install pdfjs-dist@4.10.38
      ```
 
 2. **Tailwind CSS (UI 스타일링)**
@@ -44,21 +42,11 @@ transcription-app-github/            <- 최상위 Git 리포지토리
      npm install -D tailwindcss postcss autoprefixer
      ```
 
-3. **PDF Worker CDN 연관 설정**
-   * **역할**: 백그라운드 스레드에서 PDF를 파싱하는 스크립트.
-   * `app/page.tsx` 최상단에 Worker 경로 지정 필수:
-     ```typescript
-     import * as pdfjsLib from 'pdfjs-dist';
-     pdfjsLib.GlobalWorkerOptions.workerSrc = `//[cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js](https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js)`;
-     ```
-
-4. **Next.js 번들러 외부화 설정 (`next.config.ts`)**
+3. **Next.js 기본 설정 (`next.config.ts`)**
    ```typescript
    import type { NextConfig } from "next";
 
-   const nextConfig: NextConfig = {
-     serverExternalPackages: ["pdfjs-dist"],
-   };
+   const nextConfig: NextConfig = {};
 
    export default nextConfig;
    ```
@@ -69,61 +57,61 @@ transcription-app-github/            <- 최상위 Git 리포지토리
 
 ### Q1. VS Code에서 라이브러리를 설치했는데 GitHub Desktop Changes에 안 나타납니다.
 * **원인**: `package.json` 변경 사항이 자동 반영/커밋되어 `History` 탭으로 넘어갔거나 미저장 상태인 경우.
-* **해결**: `package.json`에 `"pdfjs-dist": "3.11.174"` 저장 확인 후 GitHub Desktop의 `History` 탭을 점검하거나 `Push origin` 진행.
+* **해결**: `package.json` 저장 확인 후 GitHub Desktop의 `History` 탭을 점검하거나 `Push origin` 진행.
 
-### Q2. `Warning: Please use the 'legacy' build in Node.js environments` 빌드 에러
-* **원인**: `pdfjs-dist` 최신 v4 버전과 Next.js SSR Canvas 모듈 충돌.
-* **해결**: `pdfjs-dist@3.11.174` 버전 고정 설치 및 `next.config.ts`에 `serverExternalPackages` 옵션 지정.
-
-### Q3. 회사 망 보안 이슈로 브라우저 파일 업로드 차단
+### Q2. 회사 망 보안 이슈로 브라우저 파일 업로드 차단
 * **원인**: 보안 정책상 `<input type="file" />` 및 네트워크 파일 전송 차단.
 * **해결**: `public/data/` 폴더에 PDF를 미리 배치 후 `fetch('/data/sample1.pdf')` 형태로 서버 로컬 경로 파싱 우회.
 
-### Q4. `public/data` 내 PDF가 Git 미감지 또는 중복 확장자 발생
+### Q3. `public/data` 내 PDF가 Git 미감지 또는 중복 확장자 발생
 * **원인**: 빈 폴더 Git 추적 제외, 윈도우 확장자 숨김으로 인한 `sample1.pdf.pdf` 중복 문제.
 * **해결**: `transcription-app/public/data/` 디렉터리에 `.gitkeep` 추가 및 파일명을 `sample1.pdf`로 정상화.
 
-### Q5. 오타 수정 시 오타율 미반영 및 이전 문장 이동 시 순서 꼬임
+### Q4. 오타 수정 시 오타율 미반영 및 이전 문장 이동 시 순서 꼬임
 * **원인**: 오타율 계산 시 최신 `input` 미참조, 인덱스 전환 비동기 타이밍 이슈.
 * **해결**: `calculateStats()`에서 작성 중인 `input` 우선 반영 및 `currentIndex` 변경 시 캐시 동기화 전용 `useEffect` 작성.
 
-### Q6. 사용자/문서별 캐싱 및 버튼 구성 변경
+### Q5. 사용자/문서별 캐싱 및 버튼 구성 변경
 * **해결**: `[이전 문장]` | `[다음 문장]` | `[작성 완료]` 버튼 구성 정립 및 `userProgressMap[userName][docId]` 구조로 개별 작성 상태 분리 캐싱.
 
-### Q7. 관리자 접속 보안 강화
+### Q6. 관리자 접속 보안 강화
 * **해결**: 비밀번호를 `admin!@#`로 변경 및 UI 상의 비밀번호 힌트 문구 전면 제거.
 
-### Q8. AI 대화창에서 마크다운 코드 상자가 중간에 끊기거나 짤리는 현상
+### Q7. AI 대화창에서 마크다운 코드 상자가 중간에 끊기거나 짤리는 현상
 * **원인**: 마크다운 문서를 백틱 3개 코드로 제공 시 내부 코드 예시의 백틱과 중첩되어 외부 상자가 조기 닫힘.
-* **해결**: 최상위 상자를 백틱 4개(` ` ` `markdown)로 감싸서 내부에 백틱 3개가 있더라도 상자가 끊기지 않도록 교정.
+* **해결**: 최상위 상자를 백틱 4개(````markdown)로 감싸서 내부에 백틱 3개가 있더라도 상자가 끊기지 않도록 교정.
 
-### Q9. 다양한 파일 확장자(.txt, .md, .csv 등) 파싱 시 에러 방지
+### Q8. 다양한 파일 확장자(.txt, .md, .csv 등) 파싱 시 에러 방지
 * **원인**: 파싱 로직이 확장자를 구분하지 않고 모든 파일을 PDF 파서 엔진으로 처리하려다 `Invalid PDF structure` 에러 발생.
 * **해결**: 파일 확장자를 자동 감지하여 `.pdf` 이외의 텍스트 기반 문서는 Native `fetch().text()`로 직접 읽어 들여 파싱하는 분기 로직 적용.
 
-### Q10. 완주 후 재시작 시 이전 이력(v1.0) 소실 문제
+### Q9. 완주 후 재시작 시 이전 이력(v1.0) 소실 문제
 * **원인**: 저장 키가 `[user][docId]` 단일 구조로 되어 있어 재필사 시 기존 완주 데이터가 덮어씌워짐.
 * **해결**: `[docId_v1.0]`, `[docId_v2.0]`과 같이 버전별 독립 저장 키 구조로 리팩토링하여 이전 완주 기록 보존.
 
-### Q11. 프론트엔드 상태 변경의 비동기성(Asynchrony)으로 인한 오타율 수치 불일치
+### Q10. 프론트엔드 상태 변경의 비동기성(Asynchrony)으로 인한 오타율 수치 불일치
 * **원인**: React의 `useState` 변경 함수는 비동기로 동작하여 오타 수정 직후 이력 창 열람 시 옛날 데이터를 참조함.
 * **해결**: 이벤트 발생 시 현재 작성 중인 `input` 상태값을 연산 함수의 매개변수에 직접 결합(Merge)하여 연산 순서를 보장하도록 교정.
 
-### Q12. 메인 화면과 이력 창의 연산 시점 격리(Data Isolation) 문제
+### Q11. 메인 화면과 이력 창의 연산 시점 격리(Data Isolation) 문제
 * **원인**: 메인 화면은 실시간 `input` 변수를 참조하고, 이력 창은 저장소 초안 객체만 읽어 연산 기준 시점이 어긋남.
 * **해결**: `calculateStats` 통계 연산 로직을 단일화하고, 전체 문서 원문 글자 수 대비 오타 수 기준으로 연산 공식을 통일하여 수치 완벽 동기화.
 
-### Q13. 오타율 산출 분모 기준 변경 (타이핑한 글자 수 ➔ 전체 원문 글자 수)
+### Q12. 오타율 산출 분모 기준 변경 (타이핑한 글자 수 ➔ 전체 원문 글자 수)
 * **원인**: 초반 1~2글자 작성 중 오타 발생 시 작성 글자 수 기준 연산에서는 오타율이 100%까지 튀어 사용자가 오류로 오인함.
 * **해결**: 오타율 연산 공식을 **`[문서 전체 원문 글자 수]`** 대비 **`[발생한 오타 수]`**로 변경하여 수치가 완만하게 표기되도록 개선.
 
-### Q14. [작성 완료] 버튼 클릭 시 동작 및 수정 권한 제어
+### Q13. [작성 완료] 버튼 클릭 시 동작 및 수정 권한 제어
 * **원인**: 완주된 문장의 재수정을 방지하고 완주 흐름을 수동 버튼으로 명확히 제어할 필요성 발생.
 * **해결**: `[작성 완료]` 클릭 시 입력창 및 버튼을 비활성화(`disabled`) 처리하고 `[◀ 이전 문장]`, `[다음 문장 ▶]` 버튼으로만 수동 이동하도록 변경.
 
-### Q15. 비동기 상태(State) 갱신으로 인한 마지막 문장 오타율 누락 현상
+### Q14. 비동기 상태(State) 갱신으로 인한 마지막 문장 오타율 누락 현상
 * **원인**: React `useState` 비동기 특성으로 마지막 문장에서 `[작성 완료]` 클릭 직후 연산 시 완주 카운트가 즉시 반영되지 않음.
 * **해결**: `calculateStats` 함수에 최신 완료 카운트 매개변수(`completedCountOverride`)를 추가하여 완주 직후 최신 수치를 직접 전달하도록 보정.
+
+### Q15. Next.js 15 (Turbopack) 환경에서 `Module not found: Can't resolve 'canvas'` 에러 발생
+* **원인**: `pdfjs-dist` 최신 v4 라이브러리 내부에 Node.js 서버용 그래픽 모듈(`node-canvas`) 참조 코드가 포함되어 있어, 최상단 정적 `import` 사용 시 Turbopack 번들러가 이를 브라우저 필수 패키지로 감지하여 빌드 차단.
+* **해결**: `app/page.tsx` 최상단의 정적 `import`를 제거하고, PDF 파싱 함수(`handleLoadFromDataDir`) 실행 시점에 `const pdfjsLib = await import('pdfjs-dist')`로 **동적 로딩(Dynamic Import)** 처리하여 최신 버전(`4.10.38`)을 그대로 유지하면서 Canvas 번들 감지 오류를 원천 해결.
 
 ---
 
@@ -159,8 +147,9 @@ transcription-app-github/            <- 최상위 Git 리포지토리
 4. 버튼 동작 제어:
    - [◀ 이전 문장], [다음 문장 ▶] 버튼으로만 문장 간 수동 이동.
    - [작성 완료] 버튼 클릭 시 현재 문장을 저장하고 입력창 및 완료 버튼을 즉시 disable 처리 (다음 문장 자동 이동 없음).
-   - 마지막 문장에서 [작성 완료] 클릭 시 최신 완료 카운트를 즉시 반영하여 완주 축하 팝업 모달 출력.
+   - 마지막 문장에서 [작성 완료] 클릭 시 최신 완료 카운트(completedCountOverride)를 즉시 반영하여 완주 축하 팝업 모달 출력.
 5. 내 필사 이력 조회 모달: 버전을 구분하여 사용자의 과거 필사 이력 및 누적 오타율, 작성률 확인 가능.
+6. PDF 파싱 및 빌드 호환성: pdfjs-dist@4.10.38 패키지를 사용하되 Turbopack canvas 에러 방지를 위해 반드시 동적 로딩(await import) 방식으로 작성할 것.
 
 [시니어 맞춤 UX/UI 요구사항]
 1. 글자 크기: 원문 및 입력창 글자 크기를 매우 크게(text-lg ~ text-xl 이상) 설정.
@@ -180,6 +169,6 @@ transcription-app-github/            <- 최상위 Git 리포지토리
 
 1. **GitHub Desktop** 앱 열기
 2. 왼쪽 **Changes** 목록에서 `QnA.md` 파일 추가 확인
-3. 하단 Summary 입력란에 **`docs: cleanup memory game prompt and finalize QnA.md`** 입력
+3. 하단 Summary 입력란에 **`docs: finalize QnA.md with Next.js 15 and pdfjs-dist v4 dynamic import`** 입력
 4. **`Commit to main`** 버튼 클릭
 5. 상단 **`Push origin`** 버튼을 클릭하여 GitHub 원격 저장소에 반영

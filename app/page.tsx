@@ -1,9 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import * as pdfjsLib from 'pdfjs-dist';
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs`;
 
 interface DocumentData {
   id: string;
@@ -58,17 +55,17 @@ export default function TranscriptionApp() {
   const [showUserHistoryModal, setShowUserHistoryModal] = useState(false);
 
   // 관리자 전용
-  const [dataFileName, setDataFileName] = useState('sample1.pdf');
+  const [dataFileName, setDataFileName] = useState('sample.txt');
   const [extractedTitle, setExtractedTitle] = useState('');
   const [allParsedSentences, setAllParsedSentences] = useState<{ id: number; text: string; selected: boolean }[]>([]);
   const [sections, setSections] = useState<SectionItem[]>([]);
   const [sectionName, setSectionName] = useState('');
   const [isReviewing, setIsReviewing] = useState(false);
 
-  // 진행 상태 맵 (버전별 독립 키 사용)
+  // 진행 상태 맵
   const [userProgressMap, setUserProgressMap] = useState<Record<string, Record<string, UserProgress>>>({});
 
-  // 초기 로드
+  // 초기 로드 (금강경 디폴트 문서 설정)
   useEffect(() => {
     const loadedDocs = localStorage.getItem('transcription_docs');
     const loadedProgress = localStorage.getItem('transcription_progress');
@@ -81,10 +78,10 @@ export default function TranscriptionApp() {
     } else {
       const defaultDoc: DocumentData = {
         id: 'default-1',
-        title: '삶의 희망과 정성 (기본 샘플)',
+        title: '금강경(금강반야바라밀경) (261문장)',
         sentences: [
-          "삶이 있는 한 희망은 있다.",
-          "천천히 걸어도 정성을 다해 적어 내려가는 순간에 집중해 보세요."
+          "이와 같이 나는 들었다.",
+          "한때 부처님께서 사위국 기수급고독원에서 대비구 1250인과 함께 계셨다."
         ],
         disabled: false
       };
@@ -101,13 +98,10 @@ export default function TranscriptionApp() {
   const currentDoc = documents.find((d) => d.id === selectedDocId);
   const currentSentence = currentDoc?.sentences[currentIndex] || '';
 
-  // 현재 문장이 이미 작성 완료된 상태인지 여부 (완료된 문장은 수정 및 버튼 비활성화)
   const isCurrentSentenceReadOnly = currentIndex < completedCount;
 
-  // 버전별 고유 저장 키 생성
   const getProgressKey = (docId: string, ver: number) => `${docId}_v${ver}.0`;
 
-  // 특정 문서의 가장 최근 진행 기록 구하기
   const getLatestUserProgress = (trimmedUser: string, docId: string) => {
     const userMap = userProgressMap[trimmedUser];
     if (!userMap) return null;
@@ -124,14 +118,12 @@ export default function TranscriptionApp() {
     return userMap[matchingKeys[0]];
   };
 
-  // 문장 인덱스 변경 시 해당 텍스트 동기화
   useEffect(() => {
     if (viewMode === 'user') {
       setInput(sentenceDrafts[currentIndex] || '');
     }
   }, [currentIndex, viewMode]);
 
-  // 입력값 변경 시 (작성 완료되지 않은 현재 문장만 수정 가능)
   const handleInputChange = (val: string) => {
     if (isCurrentSentenceReadOnly) return;
     setInput(val);
@@ -206,19 +198,16 @@ export default function TranscriptionApp() {
     localStorage.setItem('transcription_progress', JSON.stringify(newProgressMap));
   };
 
-  // 1. 이전 문장 버튼
   const handlePrevSentence = () => {
     if (currentIndex > 0) {
       const prevIdx = currentIndex - 1;
       const updatedDrafts = { ...sentenceDrafts, [currentIndex]: input };
       setSentenceDrafts(updatedDrafts);
       saveUserProgress(prevIdx, updatedDrafts);
-
       setCurrentIndex(prevIdx);
     }
   };
 
-  // 2. 다음 문장 버튼
   const handleNextSentence = () => {
     if (!currentDoc) return;
     const totalSentences = currentDoc.sentences.length;
@@ -236,7 +225,7 @@ export default function TranscriptionApp() {
     }
   };
 
-  // 3. 작성 완료 버튼 (자동 이동 로직 제거)
+  // ✅ 작성 완료 버튼 핸들러: 비동기 처리 보정을 위한 newCompleted 직접 전달
   const handleCompleteSentence = () => {
     if (!currentDoc || isCurrentSentenceReadOnly) return;
     const totalSentences = currentDoc.sentences.length;
@@ -249,13 +238,12 @@ export default function TranscriptionApp() {
 
     const nowStr = new Date().toLocaleString('ko-KR');
 
-    // 현재 문장 저장
     saveUserProgress(currentIndex, updatedDrafts, newCompleted);
 
-    // 마지막 문장에서 작성 완료 시 완주 축하 팝업 출력
     if (newCompleted >= totalSentences) {
       saveUserProgress(currentIndex, updatedDrafts, newCompleted, undefined, undefined, nowStr);
-      const finalStats = calculateStats(currentDoc, updatedDrafts, currentIndex, input, true);
+      // ✅ 오타 연산 시 최신 완료 개수(newCompleted)를 넘겨 오타율 오차 원천 해결
+      const finalStats = calculateStats(currentDoc, updatedDrafts, currentIndex, input, true, newCompleted);
       setCongratsData({
         startDate: startDate || nowStr,
         endDate: nowStr,
@@ -266,7 +254,6 @@ export default function TranscriptionApp() {
     }
   };
 
-  // 필사 시작하기
   const handleUserLogin = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedUser = userName.trim();
@@ -385,7 +372,7 @@ export default function TranscriptionApp() {
 
   const handleLoadFromDataDir = async () => {
     const fileName = dataFileName.trim();
-    if (!fileName) return alert('파일명(예: sample1.pdf, sample1.txt 등)을 입력해 주세요.');
+    if (!fileName) return alert('파일명(예: sample.txt, sample1.pdf 등)을 입력해 주세요.');
 
     const filePath = `/data/${fileName}`;
     const cleanTitle = fileName.replace(/\.[^/.]+$/, '');
@@ -402,12 +389,15 @@ export default function TranscriptionApp() {
       const isPdf = fileName.toLowerCase().endsWith('.pdf');
 
       if (isPdf) {
+        const pdfjsLib = await import('pdfjs-dist');
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+
         const arrayBuffer = await response.arrayBuffer();
         const loadingTask = pdfjsLib.getDocument({
           data: arrayBuffer,
-          cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/cmaps/',
+          cMapUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/cmaps/`,
           cMapPacked: true,
-          standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/standard_fonts/',
+          standardFontDataUrl: `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/standard_fonts/`,
         });
 
         const pdf = await loadingTask.promise;
@@ -548,13 +538,14 @@ export default function TranscriptionApp() {
     }
   };
 
-  // 통계 연산 로직 (전체 원문 글자 수 기준)
+  // ✅ 통계 연산 로직 (completedCountOverride 적용)
   const calculateStats = (
     targetDocData?: DocumentData,
     targetDrafts?: Record<number, string>,
     targetCurrIdx?: number,
     targetInputVal?: string,
-    isCompletedFlag?: boolean
+    isCompletedFlag?: boolean,
+    completedCountOverride?: number
   ) => {
     const docObj = targetDocData || currentDoc;
     if (!docObj || docObj.sentences.length === 0) {
@@ -564,6 +555,7 @@ export default function TranscriptionApp() {
     const drafts = targetDrafts || sentenceDrafts;
     const cIdx = targetCurrIdx !== undefined ? targetCurrIdx : currentIndex;
     const currInput = targetInputVal !== undefined ? targetInputVal : input;
+    const activeCompletedCount = completedCountOverride !== undefined ? completedCountOverride : completedCount;
 
     let totalOriginalChars = 0;
     let totalTypedChars = 0;
@@ -582,7 +574,7 @@ export default function TranscriptionApp() {
         }
       }
 
-      if (idx < completedCount && typed.length < origSentence.length) {
+      if (idx < activeCompletedCount && typed.length < origSentence.length) {
         totalErrorChars += (origSentence.length - typed.length);
       }
     });
@@ -721,7 +713,7 @@ export default function TranscriptionApp() {
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    placeholder="예: sample1.pdf, sample1.txt 등"
+                    placeholder="예: sample.txt, sample1.pdf 등"
                     value={dataFileName}
                     onChange={(e) => setDataFileName(e.target.value)}
                     className="flex-1 p-2.5 text-sm border border-slate-300 rounded-lg font-mono"
@@ -863,7 +855,7 @@ export default function TranscriptionApp() {
             </div>
           </div>
 
-          {/* 관리자: 전체 사용자 필사 이력 대시보드 */}
+          {/* 전체 사용자 필사 이력 대시보드 */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
             <h2 className="text-lg font-bold text-slate-800 mb-4">전체 사용자 필사 이력 대시보드</h2>
             {Object.keys(userProgressMap).length === 0 ? (
@@ -1048,7 +1040,7 @@ export default function TranscriptionApp() {
             })}
           </div>
 
-          {/* 필사 입력 박스 (작성 완료 문장은 readOnly & disabled 처리) */}
+          {/* 필사 입력 박스 */}
           <textarea
             value={input}
             onChange={(e) => handleInputChange(e.target.value)}
@@ -1081,7 +1073,6 @@ export default function TranscriptionApp() {
                 다음 문장 ▶
               </button>
 
-              {/* 작성 완료 버튼: 클릭 후 작성 완료 상태가 되면 disabled 처리 및 자동 이동 안함 */}
               <button
                 onClick={handleCompleteSentence}
                 disabled={isCurrentSentenceReadOnly}
